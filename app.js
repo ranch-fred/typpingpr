@@ -19,6 +19,21 @@
     'Hit the space bar with your thumb, without moving your hands.',
     'When a letter turns red, stop, Backspace, and type it slowly once. That is how the fix sticks.',
   ];
+  // Each block of the hour has its own color: [main, darker edge].
+  const BLOCK_COLORS = {
+    warm: ['#f59f00', '#c77f00'], test: ['#3b5bdb', '#2b44a8'], prec: ['#2f9e44', '#237032'], weak: ['#7048e8', '#5434b8'],
+    sprint: ['#f03e3e', '#c22f2f'], endure: ['#0ca678', '#087f5b'], weak2: ['#e64980', '#b8346a'], cool: ['#1c9be6', '#1478b4'],
+  };
+  const PRACTICE_COLOR = ['#7048e8', '#5434b8'];
+  const COMBO_SHOUTS = { 10: 'Nice! 10', 25: 'Great! 25', 50: 'On fire! 50', 75: 'Wow! 75', 100: 'Unstoppable! 100', 150: 'Legend! 150', 200: 'Machine! 200' };
+  const CONFETTI = ['#ff8a00', '#f5b300', '#3b5bdb', '#2f9e44', '#e64980', '#7048e8', '#0ca678'];
+  const MOUTH = { smile: 'M38 60 Q50 72 62 60', grin: 'M35 56 Q50 80 65 56 Z', oops: 'M41 67 Q50 58 59 67' };
+  const KIP = `<svg class="kip" viewBox="0 0 100 100" aria-hidden="true">
+    <rect class="kip-base" x="8" y="20" width="84" height="74" rx="20"/>
+    <rect class="kip-top" x="8" y="8" width="84" height="76" rx="20"/>
+    <g class="kip-eyes"><ellipse cx="36" cy="40" rx="6" ry="8.5"/><ellipse cx="64" cy="40" rx="6" ry="8.5"/></g>
+    <ellipse class="kip-cheek" cx="23" cy="56" rx="6.5" ry="4"/><ellipse class="kip-cheek" cx="77" cy="56" rx="6.5" ry="4"/>
+    <path class="kip-mouth" d="${MOUTH.smile}"/></svg>`;
   const $ = s => document.querySelector(s);
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const todayKey = () => C.dateKey(new Date());
@@ -126,10 +141,51 @@
       o.connect(g).connect(audio.destination); o.start(t); o.stop(t + 0.13);
     } catch (e) { /* no audio available */ }
   }
-  function confetti() {
+  function confetti(small) {
     if (reducedMotion || !window.confetti) return;
-    window.confetti({ particleCount: 150, spread: 85, origin: { y: 0.6 }, colors: ['#ff8a00', '#f5b300', '#3b5bdb', '#2f9e44'] });
+    window.confetti(small
+      ? { particleCount: 60, spread: 60, startVelocity: 35, origin: { y: 0.4 }, colors: CONFETTI }
+      : { particleCount: 160, spread: 90, origin: { y: 0.6 }, colors: CONFETTI });
   }
+  // Small burst of colored bits from a point on screen.
+  function burst(x, y, n, colors, spread) {
+    if (reducedMotion) return;
+    const layer = $('#fx');
+    for (let i = 0; i < n; i++) {
+      const p = document.createElement('i');
+      const a = Math.random() * Math.PI * 2, d = spread * (0.45 + Math.random() * 0.8);
+      p.className = Math.random() < 0.5 ? 'round' : '';
+      p.style.cssText = `left:${x}px;top:${y}px;background:${colors[i % colors.length]};--dx:${Math.cos(a) * d}px;--dy:${Math.sin(a) * d - spread * 0.35}px`;
+      p.addEventListener('animationend', () => p.remove());
+      layer.appendChild(p);
+    }
+  }
+  function restartAnim(el, cls) { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
+  // Mascot moods: 'happy' (hop + grin) or 'oops' (shake + frown), back to smiling after `ms`.
+  function mood(sel, m, ms) {
+    const w = $(sel);
+    if (!w) return;
+    clearTimeout(w._t);
+    w.classList.remove('happy', 'oops');
+    restartAnim(w, m);
+    w.querySelector('.kip-mouth').setAttribute('d', MOUTH[m === 'oops' ? 'oops' : 'grin']);
+    w._t = setTimeout(() => { w.classList.remove(m); w.querySelector('.kip-mouth').setAttribute('d', MOUTH.smile); }, ms || 700);
+  }
+  function countUp(el, to) {
+    if (reducedMotion) { el.textContent = to; return; }
+    const t0 = performance.now(), dur = 800;
+    const step = now => {
+      const k = Math.min(1, (now - t0) / dur);
+      el.textContent = Math.round(to * (1 - Math.pow(1 - k, 3)));
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+  function setAccent(el, colors) {
+    el.style.setProperty('--accent', colors[0]);
+    el.style.setProperty('--accent-dk', colors[1]);
+  }
+  ['#kipHome', '#kipType', '#kipResult'].forEach(s => { $(s).innerHTML = KIP; });
   function renderWeek(el) {
     const q = qualified(), now = new Date();
     let html = '';
@@ -137,7 +193,7 @@
       const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
       const k = C.dateKey(d), day = db.days[k];
       const cls = day && day.perfect ? 'gold' : q[k] ? 'on' : '';
-      html += `<div class="day ${cls}${i === 0 ? ' today' : ''}" title="${k}"><i>${cls === 'gold' ? icon('crown') : cls ? icon('flame') : ''}</i>${'SMTWTFS'[d.getDay()]}</div>`;
+      html += `<div class="day ${cls}${i === 0 ? ' is-today' : ''}" title="${k}"><i>${cls === 'gold' ? icon('crown') : cls ? icon('flame') : ''}</i>${'SMTWTFS'[d.getDay()]}</div>`;
     }
     el.innerHTML = html;
   }
@@ -167,7 +223,10 @@
     $('#todayTitle').textContent = done ? 'Hour complete!' : secs ? 'Keep going' : 'Your daily hour';
     $('#todayMin').textContent = mins;
     $('#todayMeter').setAttribute('aria-valuenow', mins);
-    $('.today').classList.toggle('complete', done);
+    const card = $('#todayCard');
+    card.classList.toggle('complete', done);
+    if (!done) { const c = BLOCK_COLORS[bl[p.block].id]; card.style.setProperty('--c', c[0]); card.style.setProperty('--c-dk', c[1]); }
+    else { card.style.removeProperty('--c'); card.style.removeProperty('--c-dk'); }
     requestAnimationFrame(() => { $('#todayFill').style.width = (secs / 36) + '%'; });
     $('#startHour').firstChild.textContent = done ? 'Free practice ' : secs ? `Continue: ${bl[p.block].title} ` : "Start today's hour ";
     $('#todayNote').textContent = done
@@ -179,7 +238,8 @@
       const n = b.rounds.length, m = Math.round(blockSecs(b) / 60);
       const dot = state === 'done' ? icon('check') : i + 1;
       const prog = state === 'current' ? `${p.round}/${n}` : state === 'done' ? 'done' : '';
-      return `<li class="node ${state}"><span class="dot">${dot}</span><div class="node-body"><div class="grow"><b>${b.title}</b><span>${m} min · ${n} round${n > 1 ? 's' : ''} · ${b.desc}</span></div><span class="node-prog">${prog}</span></div></li>`;
+      const [c, cd] = BLOCK_COLORS[b.id];
+      return `<li class="node ${state}" style="--c:${c};--c-dk:${cd};--i:${i}"><span class="dot">${dot}</span><div class="node-body"><div class="grow"><b>${b.title}</b><span>${m} min · ${n} round${n > 1 ? 's' : ''} · ${b.desc}</span></div><span class="node-prog">${prog}</span></div></li>`;
     }).join('');
 
     const st = streakNow(), lit = todayMs() >= STREAK_MS;
@@ -190,6 +250,10 @@
       : st ? `Type ${left} more minute${left > 1 ? 's' : ''} today to keep your streak alive.`
       : `Type ${left} minutes today to start a streak.`;
     renderWeek($('#week'));
+    $('#kipSay').textContent = done ? 'Perfect day! I am so proud of you.'
+      : st && !lit ? `Don't let the flame go out! ${left} minutes saves your ${st}-day streak.`
+      : secs ? `${mins} down, ${60 - mins} to go. You've got this!`
+      : st ? `Day ${st + (lit ? 0 : 1)}! Ready for today's hour?` : "Hi! I'm Kip. Let's warm up those fingers!";
     $('#streakBest').textContent = Math.max(st, C.longestStreak(qualified()));
     const next = MILESTONES.find(m => m > st);
     $('#streakNext').textContent = next ? `Next milestone: ${next} days` : '';
@@ -228,7 +292,7 @@
     cancelAnimationFrame(raf);
     const src = poolWords(opts.pool);
     const track = $('#track');
-    run = { opts, src, text: '', spans: [], pos: 0, reds: new Set(), ever: new Set(), tried: new Set(),
+    run = { opts, src, text: '', spans: [], pos: 0, reds: new Set(), ever: new Set(), tried: new Set(), wordClean: true,
       keys: 0, wrong: 0, start: 0, last: 0, combo: 0, maxCombo: 0, ended: false,
       paceIdx: -1, lastHud: 0, shift: 0, lh: 0, curEl: null };
     track.innerHTML = ''; track.style.transform = '';
@@ -250,7 +314,10 @@
     $('#hCombo').textContent = '0';
     $('#hComboBox').className = 'combo';
     $('#timeFill').style.transform = 'scaleX(1)';
-    $('#typebox').classList.remove('typing');
+    $('#timeFill').className = '';
+    $('#hTime').parentElement.className = 'hud-time';
+    setAccent($('#type'), opts.color || PRACTICE_COLOR);
+    $('#typebox').classList.remove('typing', 'hot', 'fire');
     $('#caps').hidden = true;
     $('#guideKb').hidden = !db.settings.guide;
     // Between rounds the hint line carries the last round's result instead of the start tip.
@@ -306,6 +373,7 @@
       const first = Math.min(...run.reds);
       if (k === ' ' || run.text[run.pos] === ' ' || run.pos - first >= 6) {
         shake(); beep('miss');
+        mood('#kipType', 'oops', 600);
         setHint('Fix the red letter first: press Backspace.', true);
         return;
       }
@@ -325,22 +393,55 @@
       const dt = now - run.last;
       if (exp !== ' ') C.recordKey(db.keys, exp, !ok, ok && dt < 2000 ? dt : null);
     }
+    flashKey(k, ok);
     if (ok) {
-      span.className = 'c ok' + (run.ever.has(run.pos) ? ' fixed' : '');
+      span.className = 'c ok pop' + (run.ever.has(run.pos) ? ' fixed' : '');
       run.combo++;
       run.maxCombo = Math.max(run.maxCombo, run.combo);
       beep('hit');
+      if (exp === ' ') {
+        // Finished a word without any mistakes: little sparkle.
+        if (run.wordClean) { const b = span.getBoundingClientRect(); burst(b.left, b.top + b.height / 2, 5, [run.opts.color ? run.opts.color[0] : PRACTICE_COLOR[0], '#ffd43b'], 26); }
+        run.wordClean = true;
+      }
+      if (COMBO_SHOUTS[run.combo]) comboShout(COMBO_SHOUTS[run.combo]);
     } else {
       span.className = 'c bad';
       run.reds.add(run.pos); run.ever.add(run.pos);
-      run.wrong++; run.combo = 0;
+      run.wrong++; run.combo = 0; run.wordClean = false;
       shake(); beep('miss');
+      mood('#kipType', 'oops', 600);
     }
     run.pos++; run.last = now;
     if (run.pos > run.text.length - 60) appendWords(30);
     setCurrent();
-    $('#hCombo').textContent = run.combo;
-    $('#hComboBox').className = 'combo' + (run.combo >= 60 ? ' fire' : run.combo >= 25 ? ' hot' : '');
+    const cb = $('#hCombo');
+    cb.textContent = run.combo;
+    if (ok) restartAnim(cb, 'bump');
+    const heat = run.combo >= 60 ? 'fire' : run.combo >= 25 ? 'hot' : '';
+    $('#hComboBox').className = 'combo' + (heat ? ' ' + heat : '');
+    $('#typebox').classList.toggle('hot', heat === 'hot');
+    $('#typebox').classList.toggle('fire', heat === 'fire');
+  }
+
+  // Press animation on the on-screen keyboard: green for right, red for wrong.
+  function flashKey(k, ok) {
+    if (!db.settings.guide) return;
+    const el = guideMap[k];
+    if (!el) return;
+    el.classList.remove('hit', 'miss');
+    el.classList.add(ok ? 'hit' : 'miss');
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove('hit', 'miss'), 140);
+  }
+
+  function comboShout(text) {
+    const el = $('#comboPop');
+    el.textContent = text;
+    restartAnim(el, 'go');
+    mood('#kipType', 'happy', 700);
+    const b = run.curEl.getBoundingClientRect();
+    burst(b.left, b.top + b.height / 2, 18, CONFETTI, 90);
   }
 
   // Backspace deletes one letter; Ctrl+Backspace deletes back to the start of the word.
@@ -364,7 +465,10 @@
       $('#hWpm').textContent = el > 1500 ? Math.round(C.wpm(run.pos - run.reds.size, el)) : '–';
       $('#hAcc').textContent = Math.round(C.accuracy(run.keys - run.wrong, run.keys) * 100);
     }
-    $('#timeFill').style.transform = `scaleX(${1 - el / total})`;
+    const left = 1 - el / total, secsLeft = (total - el) / 1000;
+    $('#timeFill').style.transform = `scaleX(${left})`;
+    $('#timeFill').className = left < 0.12 ? 'crit' : left < 0.3 ? 'low' : '';
+    $('#hTime').parentElement.className = 'hud-time' + (secsLeft <= 5 && total >= 15000 ? ' crit' : '');
     if (run.opts.pace) {
       const idx = Math.min(run.spans.length - 1, Math.floor((run.opts.pace * 5 / 60000) * el));
       if (idx !== run.paceIdx) {
@@ -431,9 +535,18 @@
     const bl = blocks(), p = plan();
     $('#rStep').textContent = o.mode === 'plan' ? `Block ${Math.min(p.block, bl.length)} of ${bl.length} done` : 'Practice';
     $('#rTitle').textContent = dayDone ? 'You finished the full hour!' : blockDone ? `${o.title} complete` : o.title;
-    $('#rWpm').textContent = Math.round(w);
-    $('#rAcc').textContent = Math.round(a * 100);
-    $('#rCombo').textContent = rs.reduce((m, x) => Math.max(m, x.combo), 0);
+    setAccent($('#resultCard'), o.color || PRACTICE_COLOR);
+    // Stars: 1 for finishing, 1 for 95%+ accuracy, 1 for beating the pace car (or 98%+ when there is none).
+    const stars = !rs.length ? 0 : 1 + (a >= 0.95 ? 1 : 0) + ((last.pace ? w >= last.pace : a >= 0.98) ? 1 : 0);
+    const starEls = [...document.querySelectorAll('#rStars .star')];
+    starEls.forEach(s => s.classList.remove('on'));
+    $('#rStars').setAttribute('aria-label', `${stars} of 3 stars`);
+    starEls.slice(0, stars).forEach((s, i) => setTimeout(() => {
+      s.classList.add('on');
+      const b = s.getBoundingClientRect();
+      burst(b.left + b.width / 2, b.top + b.height / 2, 10, ['#f5b300', '#ffd43b', '#ff8a00'], 50);
+    }, 350 + i * 300));
+    setTimeout(() => mood('#kipResult', stars >= 2 ? 'happy' : 'oops', 900), 300);
 
     const notes = [];
     if (!counted) notes.push('Too few keys pressed, so this round was not recorded.');
@@ -447,6 +560,10 @@
 
     $('#rNext').firstChild.textContent = o.mode !== 'plan' ? 'Again ' : dayDone ? 'See progress ' : `Next: ${bl[p.block].title} `;
     show('result');
+    countUp($('#rWpm'), Math.round(w));
+    countUp($('#rAcc'), Math.round(a * 100));
+    countUp($('#rCombo'), rs.reduce((m, x) => Math.max(m, x.combo), 0));
+    if (blockDone && !pb) confetti(true);
     resultAt = performance.now();
   }
 
@@ -454,7 +571,7 @@
     const p = plan(), bl = blocks();
     if (p.round === 0 && !banner) flow = { results: [] };
     const b = bl[p.block], r = b.rounds[p.round];
-    startRun(Object.assign({}, r, { mode: 'plan', title: b.title, desc: b.desc, banner,
+    startRun(Object.assign({}, r, { mode: 'plan', title: b.title, desc: b.desc, banner, color: BLOCK_COLORS[b.id],
       label: `Block ${p.block + 1} of ${bl.length} · Round ${p.round + 1} of ${b.rounds.length}` }));
   }
   function startHour() {
@@ -488,7 +605,12 @@
     const card = $('.ov-card'), st = streakNow();
     card.classList.toggle('gold', item === 'perfect');
     $('#ovIcon use').setAttribute('href', item === 'perfect' ? '#crown' : '#flame');
-    $('#ovNum').textContent = item === 'perfect' ? '' : st;
+    if (item === 'perfect') $('#ovNum').textContent = '';
+    else setTimeout(() => countUp($('#ovNum'), st), 150);
+    setTimeout(() => {
+      const b = $('#ovIcon').getBoundingClientRect();
+      burst(b.left + b.width / 2, b.top + b.height / 2, 24, item === 'perfect' ? ['#f5b300', '#ffd43b', '#fff3bf'] : ['#ff8a00', '#ffd43b', '#f03e3e'], 110);
+    }, 200);
     if (item === 'perfect') {
       $('#ovTitle').textContent = 'Perfect day!';
       $('#ovText').textContent = 'You finished the full hour of training. This is how 100 WPM happens.';

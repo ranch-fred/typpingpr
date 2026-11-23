@@ -17,6 +17,7 @@
     <symbol id="clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></symbol>
     <symbol id="check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="crown" viewBox="0 0 24 24"><path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z"/></symbol>
+    <symbol id="star" viewBox="0 0 24 24"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L2.5 9.4l6.6-.9z" stroke-linejoin="round" stroke-width="1.5"/></symbol>
   </svg>
 
   <header class="bar">
@@ -41,13 +42,17 @@
     <section id="home" class="view">
       <div class="home-grid">
         <div class="col-main">
-          <div class="card today">
+          <div class="card today" id="todayCard">
             <div class="today-head">
               <div>
                 <p class="kicker" id="todayKicker">Today</p>
                 <h1 id="todayTitle">Your daily hour</h1>
+                <div class="today-num"><b id="todayMin">0</b><span>/ 60 min</span></div>
               </div>
-              <div class="today-num"><b id="todayMin">0</b><span>/ 60 min</span></div>
+              <div class="today-kip">
+                <div class="bubble" id="kipSay"></div>
+                <div class="kip-wrap" id="kipHome"></div>
+              </div>
             </div>
             <div class="meter" role="progressbar" aria-label="Minutes of today's hour done" aria-valuemin="0" aria-valuemax="60" id="todayMeter"><div id="todayFill"></div></div>
             <div class="today-foot">
@@ -124,10 +129,11 @@
         <div><b id="hAcc">100</b><span>% accuracy</span></div>
         <div class="combo" id="hComboBox"><b id="hCombo">0</b><span>combo</span></div>
         <div id="hPaceBox"><b id="hPace">0</b><span id="hPaceLbl">vs pace car</span></div>
+        <div class="kip-wrap kip-sm" id="kipType"></div>
       </div>
       <div class="timebar"><div id="timeFill"></div></div>
 
-      <div class="typebox" id="typebox"><div class="track" id="track"></div></div>
+      <div class="typebox" id="typebox"><div class="track" id="track"></div><div class="combo-pop" id="comboPop" aria-hidden="true"></div></div>
       <p class="hint" id="hint"></p>
       <p class="caps" id="caps" hidden>Caps Lock is on. This trainer is lowercase only.</p>
 
@@ -136,9 +142,13 @@
 
     <!-- RESULT -->
     <section id="result" class="view" hidden>
-      <div class="card result">
+      <div class="card result" id="resultCard">
+        <div class="kip-wrap" id="kipResult"></div>
         <p class="kicker" id="rStep"></p>
         <h2 id="rTitle"></h2>
+        <div class="stars" id="rStars" aria-label="Stars earned">
+          <svg class="star"><use href="#star"/></svg><svg class="star big"><use href="#star"/></svg><svg class="star"><use href="#star"/></svg>
+        </div>
         <div class="big-stats">
           <div class="bs bs-blue"><span>Speed</span><b id="rWpm">0</b><em>wpm</em></div>
           <div class="bs bs-green"><span>Accuracy</span><b id="rAcc">0</b><em>%</em></div>
@@ -211,6 +221,7 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div id="fx" aria-hidden="true"></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
