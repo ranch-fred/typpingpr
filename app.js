@@ -2,7 +2,10 @@
   'use strict';
   const C = window.Core, WORDS = window.WORDS;
   const EASY = WORDS.slice(0, 200);
-  const STORE = 'road100.v1';
+  const STORE = 'road100.v1'; // same key as before, so existing progress carries over
+  const STREAK_MS = 15 * 60000; // minutes of typing that keep the streak alive
+  const MAX_SESSIONS = 1500; // older rounds live on as daily summaries in db.days
+  const MILESTONES = [3, 7, 14, 30, 50, 100, 200, 365];
   const ROWS = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
   const TIPS = [
     'Feel the bumps on F and J. Every word starts and ends back on the home row.',
@@ -10,29 +13,50 @@
     'Never look down. If you forget a key, turn on the Key guide and look at the screen instead.',
     'Keep your wrists floating and fingers curved. Tension makes you slow.',
     'Read one word ahead of where you are typing.',
-    'Short daily sessions beat one long session a week. Protect your streak.',
+    'Short breaks between blocks keep your hands fresh for the whole hour.',
     'Use the right finger every time, even when another one feels quicker. It pays off past 60 WPM.',
     'Aim for a steady rhythm instead of bursts. Even keystrokes are fast keystrokes.',
     'Hit the space bar with your thumb, without moving your hands.',
+    'When a letter turns red, stop, Backspace, and type it slowly once. That is how the fix sticks.',
   ];
   const $ = s => document.querySelector(s);
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const todayKey = () => C.dateKey(new Date());
+  const isObj = o => o && typeof o === 'object' && !Array.isArray(o);
+  const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
 
   // ---------- storage ----------
-  const blank = () => ({ v: 1, sessions: [], keys: {}, days: {}, settings: { sound: false, guide: false } });
-  const valid = d => d && d.v === 1 && Array.isArray(d.sessions) && d.keys && typeof d.keys === 'object' && d.days && typeof d.days === 'object';
+  const blank = () => ({ v: 2, sessions: [], keys: {}, days: {}, plan: null, settings: { sound: false, guide: false } });
+  const valid = d => d && (d.v === 1 || d.v === 2) && Array.isArray(d.sessions) && isObj(d.keys) && isObj(d.days);
+  function addToDay(days, s, addMs) {
+    const k = C.dateKey(new Date(s.t));
+    const d = days[k] || (days[k] = { ms: 0, best: 0, accSum: 0, n: 0, perfect: false });
+    if (addMs) d.ms += s.secs * 1000;
+    if (s.test) d.best = Math.max(d.best, s.wpm);
+    d.accSum += s.acc; d.n++;
+    return d;
+  }
+  function migrate(d) {
+    const out = Object.assign(blank(), d, { settings: Object.assign(blank().settings, d.settings) });
+    if (d.v === 1) {
+      // v1 stored only minutes per day; rebuild the daily summaries from the round history.
+      for (const k in out.days) out.days[k] = { ms: out.days[k].ms || 0, best: 0, accSum: 0, n: 0, perfect: false };
+      for (const s of out.sessions) addToDay(out.days, s, false);
+      out.v = 2; out.plan = null;
+    }
+    return out;
+  }
   function load() {
     try {
       const d = JSON.parse(localStorage.getItem(STORE));
-      if (valid(d)) return Object.assign(blank(), d, { settings: Object.assign(blank().settings, d.settings) });
+      if (valid(d)) return migrate(d);
     } catch (e) { /* storage blocked or corrupt: start fresh */ }
     return blank();
   }
   let db = load();
   function save() {
     try { localStorage.setItem(STORE, JSON.stringify(db)); }
-    catch (e) { toast('⚠ Could not save progress: browser storage is blocked.'); }
+    catch (e) { toast('Could not save progress: browser storage is blocked or full.'); }
   }
 
   // ---------- derived stats ----------
@@ -40,35 +64,35 @@
   function baseline() {
     const t = tests().slice(-5);
     const src = t.length ? t : db.sessions.slice(-5);
-    return src.length ? src.reduce((a, s) => a + s.wpm, 0) / src.length : 10;
+    return src.length ? avg(src.map(s => s.wpm)) : 10;
   }
-  const best = () => tests().reduce((m, s) => Math.max(m, s.wpm), 0);
-  function recentAcc() {
-    const r = db.sessions.slice(-10);
-    return r.length ? r.reduce((a, s) => a + s.acc, 0) / r.length : null;
+  const bestTest = () => Object.values(db.days).reduce((m, d) => Math.max(m, d.best || 0), 0);
+  const todayMs = () => (db.days[todayKey()] && db.days[todayKey()].ms) || 0;
+  function qualified() {
+    const q = {};
+    for (const k in db.days) if (db.days[k].ms >= STREAK_MS) q[k] = 1;
+    return q;
   }
-  // Per day: best test WPM and average accuracy, from session history.
-  function perDay() {
-    const m = {};
-    for (const s of db.sessions) {
-      const k = C.dateKey(new Date(s.t));
-      const d = m[k] || (m[k] = { key: k, best: 0, accSum: 0, n: 0 });
-      if (s.test) d.best = Math.max(d.best, s.wpm);
-      d.accSum += s.acc; d.n++;
-    }
-    return Object.values(m).sort((a, b) => a.key < b.key ? -1 : 1);
+  const streakNow = () => C.streak(qualified(), new Date());
+
+  // Today's hour: position is (block, round), reset each day.
+  function plan() {
+    const k = todayKey();
+    if (!db.plan || db.plan.date !== k) db.plan = { date: k, block: 0, round: 0, base: baseline() };
+    return db.plan;
   }
-  function dayNumber(key) {
-    const [y, mo, d] = key.split('-').map(Number);
-    return Math.round(new Date(y, mo - 1, d).getTime() / 86400000);
-  }
+  const blocks = () => C.hourPlan(plan().base);
+  const planSecs = () => C.planDoneSecs(blocks(), plan().block, plan().round);
+  const planDone = () => plan().block >= blocks().length;
+  const blockSecs = b => b.rounds.reduce((a, r) => a + r.secs, 0);
 
   // ---------- ui helpers ----------
   let toastTimer = 0;
   function toast(msg) {
     const t = $('#toast'); t.textContent = msg; t.classList.add('show');
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3200);
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
   }
+  const icon = id => `<svg><use href="#${id}"/></svg>`;
   function buildKb(el) {
     el.innerHTML = '';
     const map = {};
@@ -102,9 +126,25 @@
       o.connect(g).connect(audio.destination); o.start(t); o.stop(t + 0.13);
     } catch (e) { /* no audio available */ }
   }
-  function celebrate() {
+  function confetti() {
     if (reducedMotion || !window.confetti) return;
-    window.confetti({ particleCount: 140, spread: 80, origin: { y: 0.6 }, colors: ['#3ee8ff', '#ff4fd8', '#ffc94d', '#5dffa0'] });
+    window.confetti({ particleCount: 150, spread: 85, origin: { y: 0.6 }, colors: ['#ff8a00', '#f5b300', '#3b5bdb', '#2f9e44'] });
+  }
+  function renderWeek(el) {
+    const q = qualified(), now = new Date();
+    let html = '';
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      const k = C.dateKey(d), day = db.days[k];
+      const cls = day && day.perfect ? 'gold' : q[k] ? 'on' : '';
+      html += `<div class="day ${cls}${i === 0 ? ' today' : ''}" title="${k}"><i>${cls === 'gold' ? icon('crown') : cls ? icon('flame') : ''}</i>${'SMTWTFS'[d.getDay()]}</div>`;
+    }
+    el.innerHTML = html;
+  }
+  function renderChrome() {
+    $('#chipStreakN').textContent = streakNow();
+    $('#chipStreak').classList.toggle('lit', todayMs() >= STREAK_MS);
+    $('#chipMinN').textContent = Math.floor(planSecs() / 60);
   }
 
   // ---------- views ----------
@@ -114,62 +154,88 @@
     document.querySelectorAll('.view').forEach(v => { v.hidden = v.id !== id; });
     document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.go === id));
     view = id;
+    renderChrome();
     if (id === 'home') renderHome();
     if (id === 'progress') renderProgress();
     window.scrollTo(0, 0);
   }
 
   function renderHome() {
-    const has = db.sessions.length > 0;
-    const b = baseline(), lv = C.level(b), bst = best();
-    const st = C.streak(db.days, new Date());
-    $('#heroWpm').textContent = has ? Math.round(b) : '??';
-    $('#heroLevel').textContent = !has ? 'Do your first session to set your starting speed.'
-      : b >= C.GOAL ? `Level ${lv.n} · ${lv.name}. You made it to 100!`
-      : `Level ${lv.n} · ${lv.name}. ${Math.max(1, Math.ceil(lv.to - b))} wpm to the next level.`;
-    $('#greet').textContent = st > 1 ? `🔥 ${st}-day streak. Keep it alive.` : st === 1 ? 'Day 1 of your streak' : 'Daily training';
-    const pct = has ? Math.min(100, (b / C.GOAL) * 100) : 0;
-    $('#ringPct').textContent = Math.round(pct) + '%';
-    requestAnimationFrame(() => {
-      $('#ringFg').style.strokeDashoffset = 326.7 * (1 - pct / 100);
-      $('#roadFill').style.width = pct + '%';
-    });
-    $('#roadBest').style.left = `calc(${Math.min(100, bst)}% - 2px)`;
-    $('#roadBest').hidden = !bst;
-    $('#roadTicks').innerHTML = Array.from({ length: 11 }, (_, i) => `<span style="left:${i * 10}%">${i * 10}</span>`).join('');
-    $('#sStreak').textContent = st;
-    $('#sBest').textContent = bst ? Math.round(bst) : '–';
-    const ra = recentAcc();
-    $('#sAcc').textContent = ra == null ? '–' : Math.round(ra * 100) + '%';
-    const d = db.days[todayKey()];
-    $('#planDone').hidden = !(d && d.plans);
-    $('#startPlan').firstChild.textContent = d && d.plans ? 'Train again ' : 'Start training ';
-    $('#planSteps').innerHTML = C.dailyPlan(b).map(s =>
-      `<li><b>${s.title}</b><span>${s.secs}s${s.pace ? ' · pace ' + s.pace : ''}</span></li>`).join('');
+    const p = plan(), bl = blocks(), secs = planSecs(), done = planDone();
+    const mins = Math.floor(secs / 60);
+    $('#todayKicker').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+    $('#todayTitle').textContent = done ? 'Hour complete!' : secs ? 'Keep going' : 'Your daily hour';
+    $('#todayMin').textContent = mins;
+    $('#todayMeter').setAttribute('aria-valuenow', mins);
+    $('.today').classList.toggle('complete', done);
+    requestAnimationFrame(() => { $('#todayFill').style.width = (secs / 36) + '%'; });
+    $('#startHour').firstChild.textContent = done ? 'Free practice ' : secs ? `Continue: ${bl[p.block].title} ` : "Start today's hour ";
+    $('#todayNote').textContent = done
+      ? 'You did the full hour today. Extra practice still counts toward your stats.'
+      : 'Only time spent typing counts. Stop whenever you like and pick up where you left off.';
+
+    $('#path').innerHTML = bl.map((b, i) => {
+      const state = i < p.block ? 'done' : i === p.block ? 'current' : 'todo';
+      const n = b.rounds.length, m = Math.round(blockSecs(b) / 60);
+      const dot = state === 'done' ? icon('check') : i + 1;
+      const prog = state === 'current' ? `${p.round}/${n}` : state === 'done' ? 'done' : '';
+      return `<li class="node ${state}"><span class="dot">${dot}</span><div class="node-body"><div class="grow"><b>${b.title}</b><span>${m} min · ${n} round${n > 1 ? 's' : ''} · ${b.desc}</span></div><span class="node-prog">${prog}</span></div></li>`;
+    }).join('');
+
+    const st = streakNow(), lit = todayMs() >= STREAK_MS;
+    const left = Math.max(1, Math.ceil((STREAK_MS - todayMs()) / 60000));
+    $('#streakCard').classList.toggle('lit', lit);
+    $('#streakN').textContent = st;
+    $('#streakMsg').textContent = lit ? 'Streak extended today. See you tomorrow!'
+      : st ? `Type ${left} more minute${left > 1 ? 's' : ''} today to keep your streak alive.`
+      : `Type ${left} minutes today to start a streak.`;
+    renderWeek($('#week'));
+    $('#streakBest').textContent = Math.max(st, C.longestStreak(qualified()));
+    const next = MILESTONES.find(m => m > st);
+    $('#streakNext').textContent = next ? `Next milestone: ${next} days` : '';
+
+    const has = db.sessions.length > 0, b = baseline(), lv = C.level(b), bst = bestTest();
+    $('#speedNow').textContent = has ? Math.round(b) : '–';
+    requestAnimationFrame(() => { $('#speedFill').style.width = (has ? Math.min(100, b) : 0) + '%'; });
+    $('#speedBest').style.left = `calc(${Math.min(100, bst)}% - 2px)`;
+    $('#speedBest').hidden = !bst;
+    $('#speedLevel').textContent = !has ? 'Your first daily test sets your starting speed.'
+      : b >= C.GOAL ? `Level ${lv.n}: ${lv.name}. You made it to 100!`
+      : `Level ${lv.n}: ${lv.name}. ${Math.max(1, Math.ceil(lv.to - b))} wpm to the next level.`;
     $('#tip').textContent = TIPS[Math.floor(Math.random() * TIPS.length)];
   }
 
   // ---------- typing engine ----------
-  let run = null, raf = 0, plan = null, resultAt = 0;
+  // Every key fills one position. Wrong keys turn red and must be deleted with Backspace.
+  let run = null, raf = 0, resultAt = 0, hintTimer = 0;
+  let flow = { results: [] };
   const practice = { secs: '60', pool: 'all', pace: '1.05' };
+  const START_HINT = 'Start typing. The timer begins on your first key. Mistakes turn red: press Backspace to fix them.';
 
   function poolWords(pool) {
     if (pool === 'easy') return { words: EASY, focus: [] };
     if (pool === 'weak') return { words: WORDS, focus: C.weakKeys(db.keys, 3) };
     return { words: WORDS, focus: [] };
   }
+  function setHint(text, warn, tone) {
+    clearTimeout(hintTimer);
+    $('#hint').textContent = text;
+    $('#hint').className = 'hint' + (warn ? ' warn' : tone ? ' ' + tone : '');
+    if (warn) hintTimer = setTimeout(() => setHint(''), 1800);
+  }
 
   function startRun(opts) {
     cancelAnimationFrame(raf);
     const src = poolWords(opts.pool);
     const track = $('#track');
-    run = { opts, src, text: '', spans: [], pos: 0, typed: 0, errors: 0, hadErr: false, start: 0, last: 0,
-      combo: 0, maxCombo: 0, ended: false, paceIdx: -1, lastHud: 0, shift: 0, lh: 0 };
+    run = { opts, src, text: '', spans: [], pos: 0, reds: new Set(), ever: new Set(), tried: new Set(),
+      keys: 0, wrong: 0, start: 0, last: 0, combo: 0, maxCombo: 0, ended: false,
+      paceIdx: -1, lastHud: 0, shift: 0, lh: 0, curEl: null };
     track.innerHTML = ''; track.style.transform = '';
     appendWords(Math.max(40, Math.ceil(opts.secs * 2.6)));
 
     let desc = opts.desc || '';
-    if (opts.pool === 'weak') desc += src.focus.length ? ` Focus letters: ${src.focus.join('  ')}.` : ' Still learning your weak spots, so mixed words for now.';
+    if (opts.pool === 'weak') desc += src.focus.length ? ` Focus letters: ${src.focus.join(', ')}.` : ' Still learning your weak spots, so mixed words for now.';
     if (opts.pace) desc += ` Pace car: ${opts.pace} wpm.`;
     $('#tStep').textContent = opts.label;
     $('#tTitle').textContent = opts.title;
@@ -177,17 +243,19 @@
     $('#hPaceBox').hidden = !opts.pace;
     $('#hPaceBox').className = '';
     $('#hPace').textContent = '0';
+    $('#hPaceLbl').textContent = 'vs pace car';
     $('#hTime').textContent = opts.secs;
     $('#hWpm').textContent = '–';
     $('#hAcc').textContent = '100';
     $('#hCombo').textContent = '0';
-    $('#hCombo').parentElement.className = 'combo';
+    $('#hComboBox').className = 'combo';
     $('#timeFill').style.transform = 'scaleX(1)';
     $('#typebox').classList.remove('typing');
-    $('#startHint').classList.remove('gone');
     $('#caps').hidden = true;
     $('#guideKb').hidden = !db.settings.guide;
-    show('type');
+    // Between rounds the hint line carries the last round's result instead of the start tip.
+    setHint(opts.banner ? opts.banner.text : START_HINT, false, opts.banner && opts.banner.tone);
+    if (view !== 'type') show('type');
     if (document.activeElement) document.activeElement.blur();
     run.lh = parseFloat(getComputedStyle(track).lineHeight) || 40;
     setCurrent();
@@ -211,9 +279,8 @@
   }
 
   function setCurrent() {
-    const prev = run.spans[run.pos - 1];
-    if (prev) prev.classList.remove('cur', 'err');
-    const cur = run.spans[run.pos];
+    if (run.curEl) run.curEl.classList.remove('cur');
+    const cur = run.curEl = run.spans[run.pos];
     cur.classList.add('cur');
     // Keep the current line as the 1st or 2nd visible line.
     const line = Math.round(cur.offsetTop / run.lh);
@@ -221,45 +288,70 @@
     if (shift !== run.shift) { run.shift = shift; $('#track').style.transform = `translateY(${-shift}px)`; }
     if (db.settings.guide) {
       for (const k in guideMap) guideMap[k].classList.remove('next');
-      const g = guideMap[run.text[run.pos]];
+      const g = guideMap[run.reds.size ? null : run.text[run.pos]];
       if (g) g.classList.add('next');
     }
+  }
+
+  function shake() {
+    const box = $('#typebox');
+    box.classList.remove('shake'); void box.offsetWidth; box.classList.add('shake');
   }
 
   function typeKey(key, capsOn) {
     $('#caps').hidden = !capsOn;
     const k = key.toLowerCase();
+    // With a red letter pending you can finish the word, but not move past it.
+    if (run.reds.size) {
+      const first = Math.min(...run.reds);
+      if (k === ' ' || run.text[run.pos] === ' ' || run.pos - first >= 6) {
+        shake(); beep('miss');
+        setHint('Fix the red letter first: press Backspace.', true);
+        return;
+      }
+    }
     const now = performance.now();
     if (!run.start) {
       run.start = now; run.last = now;
       $('#typebox').classList.add('typing');
-      $('#startHint').classList.add('gone');
+      setHint('');
       raf = requestAnimationFrame(tick);
     }
-    const exp = run.text[run.pos];
-    const cur = run.spans[run.pos];
-    run.typed++;
-    if (k === exp) {
+    const exp = run.text[run.pos], span = run.spans[run.pos], ok = k === exp;
+    run.keys++;
+    if (!run.tried.has(run.pos)) {
+      // Letter stats use the first attempt at each position only.
+      run.tried.add(run.pos);
       const dt = now - run.last;
-      if (exp !== ' ') C.recordKey(db.keys, exp, run.hadErr, !run.hadErr && dt < 2000 ? dt : null);
-      cur.classList.remove('err');
-      cur.classList.add(run.hadErr ? 'fix' : 'ok');
-      if (!run.hadErr) run.combo++;
+      if (exp !== ' ') C.recordKey(db.keys, exp, !ok, ok && dt < 2000 ? dt : null);
+    }
+    if (ok) {
+      span.className = 'c ok' + (run.ever.has(run.pos) ? ' fixed' : '');
+      run.combo++;
       run.maxCombo = Math.max(run.maxCombo, run.combo);
-      run.hadErr = false; run.pos++; run.last = now;
-      if (run.pos > run.text.length - 60) appendWords(30);
-      setCurrent();
       beep('hit');
     } else {
-      run.errors++; run.hadErr = true; run.combo = 0; run.last = now;
-      cur.classList.add('err');
-      const box = $('#typebox');
-      box.classList.remove('shake'); void box.offsetWidth; box.classList.add('shake');
-      beep('miss');
+      span.className = 'c bad';
+      run.reds.add(run.pos); run.ever.add(run.pos);
+      run.wrong++; run.combo = 0;
+      shake(); beep('miss');
     }
-    const cb = $('#hCombo');
-    cb.textContent = run.combo;
-    cb.parentElement.className = 'combo' + (run.combo >= 60 ? ' fire' : run.combo >= 25 ? ' hot' : '');
+    run.pos++; run.last = now;
+    if (run.pos > run.text.length - 60) appendWords(30);
+    setCurrent();
+    $('#hCombo').textContent = run.combo;
+    $('#hComboBox').className = 'combo' + (run.combo >= 60 ? ' fire' : run.combo >= 25 ? ' hot' : '');
+  }
+
+  // Backspace deletes one letter; Ctrl+Backspace deletes back to the start of the word.
+  function backspace(word) {
+    if (!run.pos) return;
+    do {
+      run.pos--;
+      run.spans[run.pos].className = 'c';
+      run.reds.delete(run.pos);
+    } while (word && run.pos > 0 && run.text[run.pos - 1] !== ' ');
+    setCurrent();
   }
 
   function tick() {
@@ -269,8 +361,8 @@
     if (now - run.lastHud > 100) {
       run.lastHud = now;
       $('#hTime').textContent = Math.ceil((total - el) / 1000);
-      $('#hWpm').textContent = el > 1500 ? Math.round(C.wpm(run.pos, el)) : '–';
-      $('#hAcc').textContent = Math.round(C.accuracy(run.typed - run.errors, run.typed) * 100);
+      $('#hWpm').textContent = el > 1500 ? Math.round(C.wpm(run.pos - run.reds.size, el)) : '–';
+      $('#hAcc').textContent = Math.round(C.accuracy(run.keys - run.wrong, run.keys) * 100);
     }
     $('#timeFill').style.transform = `scaleX(${1 - el / total})`;
     if (run.opts.pace) {
@@ -281,7 +373,7 @@
         run.paceIdx = idx;
         const diff = run.pos - idx;
         $('#hPace').textContent = (diff >= 0 ? '+' : '−') + Math.abs(diff);
-        $('#hPaceLbl').textContent = diff >= 0 ? 'chars ahead' : 'chars behind';
+        $('#hPaceLbl').textContent = diff >= 0 ? 'letters ahead' : 'letters behind';
         $('#hPaceBox').className = diff >= 0 ? 'ahead' : 'behind';
       }
     }
@@ -293,196 +385,236 @@
     cancelAnimationFrame(raf);
     const o = run.opts, ms = o.secs * 1000;
     const r = { t: Date.now(), title: o.title, test: !!o.test, secs: o.secs, pace: o.pace || 0,
-      wpm: Math.round(C.wpm(run.pos, ms) * 10) / 10,
-      acc: Math.round(C.accuracy(run.typed - run.errors, run.typed) * 1000) / 1000,
+      wpm: Math.round(C.wpm(run.pos - run.reds.size, ms) * 10) / 10,
+      acc: Math.round(C.accuracy(run.keys - run.wrong, run.keys) * 1000) / 1000,
       combo: run.maxCombo };
-    const counted = run.typed >= 5;
-    const prevBest = best();
+    const counted = run.keys >= 5;
+    const wasLit = todayMs() >= STREAK_MS, prevBest = bestTest();
+    let blockDone = false, dayDone = false;
     if (counted) {
       db.sessions.push(r);
-      const d = db.days[todayKey()] || (db.days[todayKey()] = { ms: 0, plans: 0 });
-      d.ms += ms;
-    }
-    if (plan) {
-      plan.results.push(r);
-      plan.done = plan.i === plan.steps.length - 1;
-      if (plan.done && db.days[todayKey()]) db.days[todayKey()].plans++;
+      if (db.sessions.length > MAX_SESSIONS) db.sessions.splice(0, db.sessions.length - MAX_SESSIONS);
+      addToDay(db.days, r, true);
+      flow.results.push(r);
+      if (o.mode === 'plan') {
+        const p = plan();
+        p.round++;
+        if (p.round >= blocks()[p.block].rounds.length) { p.block++; p.round = 0; blockDone = true; }
+        if (planDone()) { dayDone = true; db.days[todayKey()].perfect = true; }
+      }
     }
     save();
-    showResult(r, counted, prevBest);
+    renderChrome();
+
+    const party = [];
+    if (counted && !wasLit && todayMs() >= STREAK_MS) party.push('streak');
+    if (dayDone) party.push('perfect');
+    const pb = counted && r.test && r.wpm > prevBest;
+
+    if (o.mode === 'plan' && !blockDone) {
+      // Next round of the same block: stay on the typing screen.
+      const banner = counted
+        ? { text: `Round done: ${Math.round(r.wpm)} wpm, ${Math.round(r.acc * 100)}% accuracy. Start typing for the next round.`, tone: r.acc >= 0.95 ? 'good' : 'meh' }
+        : { text: 'That round was not counted (too few keys). Try again when you are ready.', tone: 'meh' };
+      startRound(banner);
+    } else {
+      showResult(counted, pb, prevBest, blockDone, dayDone);
+      if (pb) confetti();
+    }
+    celebrate(party);
   }
 
-  function showResult(r, counted, prevBest) {
-    $('#rStep').textContent = run.opts.label;
-    $('#rTitle').textContent = plan && plan.done ? 'Session complete! 🎉' : r.title;
-    $('#rWpm').textContent = Math.round(r.wpm);
-    $('#rAcc').textContent = Math.round(r.acc * 100);
-    $('#rCombo').textContent = r.combo;
+  function showResult(counted, pb, prevBest, blockDone, dayDone) {
+    const o = run.opts, rs = flow.results.length ? flow.results : [];
+    const last = rs[rs.length - 1];
+    const w = rs.length ? avg(rs.map(x => x.wpm)) : 0, a = rs.length ? avg(rs.map(x => x.acc)) : 1;
+    const bl = blocks(), p = plan();
+    $('#rStep').textContent = o.mode === 'plan' ? `Block ${Math.min(p.block, bl.length)} of ${bl.length} done` : 'Practice';
+    $('#rTitle').textContent = dayDone ? 'You finished the full hour!' : blockDone ? `${o.title} complete` : o.title;
+    $('#rWpm').textContent = Math.round(w);
+    $('#rAcc').textContent = Math.round(a * 100);
+    $('#rCombo').textContent = rs.reduce((m, x) => Math.max(m, x.combo), 0);
 
     const notes = [];
-    let party = false;
-    if (!counted) notes.push('Too few keys pressed, so this run was not recorded.');
-    if (counted && r.test && r.wpm > prevBest) {
-      party = true;
-      notes.push(prevBest ? `🏆 <b>New personal best!</b> +${(r.wpm - prevBest).toFixed(1)} wpm over your old record.` : '📍 <b>First score recorded.</b> This is your starting line.');
-    }
-    if (r.pace) notes.push(r.wpm >= r.pace ? `🏁 You beat the pace car (${r.pace} wpm)!` : `Pace car was ${r.pace} wpm. ${Math.ceil(r.pace - r.wpm)} to go.`);
-    const goalAcc = run.opts.goalAcc;
-    if (goalAcc) notes.push(r.acc >= goalAcc ? '🎯 Precision target hit. That is how speed gets built.' : `Accuracy below ${goalAcc * 100}%. Slow down until it is clean.`);
-    else if (counted && r.acc < 0.92) notes.push('Accuracy under 92%. Slow down a notch. Every fix costs you more time than a careful keystroke.');
+    if (!counted) notes.push('Too few keys pressed, so this round was not recorded.');
+    if (pb) notes.push(prevBest ? `<b>New personal best!</b> ${last.wpm.toFixed(1)} wpm, up ${(last.wpm - prevBest).toFixed(1)} on your old record.` : '<b>First test recorded.</b> This is your starting line.');
+    if (last && last.pace) notes.push(w >= last.pace ? `You beat the pace car (${last.pace} wpm).` : `The pace car was ${last.pace} wpm. ${Math.ceil(last.pace - w)} to go.`);
+    if (o.goalAcc) notes.push(a >= o.goalAcc ? 'Precision target hit. That is how speed gets built.' : `Accuracy was under ${Math.round(o.goalAcc * 100)}%. Slow down until it is clean.`);
+    else if (rs.length && a < 0.92) notes.push('Accuracy under 92%. Slow down a little: every fix costs more time than a careful keystroke.');
+    if (blockDone && !dayDone) notes.push('Good moment for a short break: shake out your hands and look away from the screen.');
+    if (dayDone) notes.push('That was the whole hour. Come back tomorrow for a fresh one and keep your streak going.');
     $('#rNote').innerHTML = notes.join('<br>');
 
-    const sum = $('#rSummary');
-    sum.hidden = !(plan && plan.done);
-    if (plan && plan.done) {
-      sum.innerHTML = plan.results.map(x =>
-        `<div class="row"><span>${x.title}</span><span>${Math.round(x.wpm)} wpm · ${Math.round(x.acc * 100)}%</span></div>`).join('');
-      const days = perDay().filter(d => d.best > 0);
-      if (days.length >= 2) {
-        const diff = days[days.length - 1].best - days[days.length - 2].best;
-        sum.innerHTML += `<div class="row"><span><b>vs last test day</b></span><span>${diff >= 0 ? '+' : ''}${diff.toFixed(1)} wpm</span></div>`;
-      }
-      party = true;
-    }
-    $('#rNext').firstChild.textContent = plan
-      ? (plan.done ? 'See progress ' : `Next: ${plan.steps[plan.i + 1].title} `)
-      : 'Again ';
+    $('#rNext').firstChild.textContent = o.mode !== 'plan' ? 'Again ' : dayDone ? 'See progress ' : `Next: ${bl[p.block].title} `;
     show('result');
     resultAt = performance.now();
-    if (party) celebrate();
   }
 
-  function startPlan() {
-    plan = { steps: C.dailyPlan(baseline()), i: 0, results: [], done: false };
-    runStep();
+  function startRound(banner) {
+    const p = plan(), bl = blocks();
+    if (p.round === 0 && !banner) flow = { results: [] };
+    const b = bl[p.block], r = b.rounds[p.round];
+    startRun(Object.assign({}, r, { mode: 'plan', title: b.title, desc: b.desc, banner,
+      label: `Block ${p.block + 1} of ${bl.length} · Round ${p.round + 1} of ${b.rounds.length}` }));
   }
-  function runStep() {
-    const s = plan.steps[plan.i];
-    startRun(Object.assign({}, s, { label: `Step ${plan.i + 1} of ${plan.steps.length}` }));
+  function startHour() {
+    if (planDone()) { show('practice'); return; }
+    flow = { results: [] };
+    startRound(null);
   }
   function startPractice() {
-    plan = null;
+    flow = { results: [] };
     const p = Number(practice.pace), secs = Number(practice.secs);
-    startRun({ title: 'Free practice', label: 'Practice', secs, pool: practice.pool,
-      pace: p ? Math.round(baseline() * p) : 0, test: practice.pool === 'all' && secs >= 30 });
+    startRun({ mode: 'practice', title: 'Free practice', label: 'Practice', secs, pool: practice.pool,
+      pace: p ? Math.round(baseline() * p) : 0, test: practice.pool === 'all' && secs >= 60 });
   }
   function next() {
-    if (plan && !plan.done) { plan.i++; runStep(); }
-    else if (plan) { plan = null; show('progress'); }
-    else startPractice();
+    if (!run || run.opts.mode !== 'plan') startPractice();
+    else if (planDone()) show('progress');
+    else { flow = { results: [] }; startRound(null); }
   }
+  function pause() {
+    const mid = run && run.opts.mode === 'plan';
+    show('home');
+    if (mid) toast('Paused. Your place in today\'s hour is saved.');
+  }
+
+  // ---------- celebrations (streak / perfect day) ----------
+  let queue = [], overlayAt = 0;
+  function celebrate(items) { queue.push(...items); if ($('#overlay').hidden) nextOverlay(); }
+  function nextOverlay() {
+    const item = queue.shift();
+    if (!item) { $('#overlay').hidden = true; return; }
+    const card = $('.ov-card'), st = streakNow();
+    card.classList.toggle('gold', item === 'perfect');
+    $('#ovIcon use').setAttribute('href', item === 'perfect' ? '#crown' : '#flame');
+    $('#ovNum').textContent = item === 'perfect' ? '' : st;
+    if (item === 'perfect') {
+      $('#ovTitle').textContent = 'Perfect day!';
+      $('#ovText').textContent = 'You finished the full hour of training. This is how 100 WPM happens.';
+    } else {
+      $('#ovTitle').textContent = st === 1 ? 'You started a streak!' : `${st} day streak!`;
+      $('#ovText').textContent = MILESTONES.includes(st) ? `${st} days in a row. That is a milestone. Keep it burning.` : 'You typed 15 minutes today. Come back tomorrow to keep it going.';
+    }
+    renderWeek($('#ovWeek'));
+    $('#overlay').hidden = false;
+    overlayAt = performance.now();
+    $('#ovBtn').focus();
+    if (item === 'perfect' || MILESTONES.includes(st)) confetti();
+  }
+  $('#ovBtn').addEventListener('click', nextOverlay);
 
   // ---------- progress ----------
   let chart = null;
   function renderProgress() {
-    const days = perDay(), testDays = days.filter(d => d.best > 0);
+    const keys = Object.keys(db.days).sort();
+    const testDays = keys.filter(k => db.days[k].best > 0);
     $('#pCur').textContent = tests().length ? Math.round(baseline()) : '–';
-    $('#pBest').textContent = best() ? Math.round(best()) : '–';
-    $('#pTime').textContent = Math.round(Object.values(db.days).reduce((a, d) => a + (d.ms || 0), 0) / 60000);
+    $('#pBest').textContent = bestTest() ? Math.round(bestTest()) : '–';
+    $('#pTime').textContent = (keys.reduce((a, k) => a + (db.days[k].ms || 0), 0) / 3600000).toFixed(1);
 
-    const eta = C.projectDays(testDays.slice(-30).map(d => ({ x: dayNumber(d.key), y: d.best })), C.GOAL);
+    const eta = C.projectDays(testDays.slice(-30).map(k => ({ x: C.dayNumber(k), y: db.days[k].best })), C.GOAL);
     if (eta === null) { $('#pEta').textContent = '–'; $('#pEtaSub').textContent = testDays.length < 3 ? 'needs 3+ test days' : 'trend not rising yet, keep going'; }
-    else if (eta === 0) { $('#pEta').textContent = '🎉'; $('#pEtaSub').textContent = 'goal reached'; }
+    else if (eta === 0) { $('#pEta').textContent = 'Done!'; $('#pEtaSub').textContent = 'goal reached'; }
     else {
       const when = new Date(); when.setDate(when.getDate() + eta);
       $('#pEta').textContent = when.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      $('#pEtaSub').textContent = `~${eta} days at your current trend`;
+      $('#pEtaSub').textContent = `about ${eta} days at your current trend`;
     }
 
-    // Chart
     $('#chartEmpty').hidden = testDays.length > 0;
     if (chart) { chart.destroy(); chart = null; }
     if (window.Chart && testDays.length) {
-      const labels = testDays.map(d => d.key.slice(5));
-      const vals = testDays.map(d => d.best);
-      const avg = vals.map((_, i) => { const w = vals.slice(Math.max(0, i - 6), i + 1); return Math.round(w.reduce((a, b) => a + b, 0) / w.length * 10) / 10; });
-      const ctx = $('#chart').getContext('2d');
-      const grad = ctx.createLinearGradient(0, 0, 0, 300);
-      grad.addColorStop(0, 'rgba(62,232,255,.35)'); grad.addColorStop(1, 'rgba(62,232,255,0)');
-      chart = new window.Chart(ctx, {
+      const vals = testDays.map(k => db.days[k].best);
+      const avg7 = vals.map((_, i) => Math.round(avg(vals.slice(Math.max(0, i - 6), i + 1)) * 10) / 10);
+      chart = new window.Chart($('#chart').getContext('2d'), {
         type: 'line',
-        data: { labels, datasets: [
-          { label: 'Daily test', data: vals, borderColor: '#3ee8ff', backgroundColor: grad, fill: true, tension: 0.35, pointRadius: 3, pointBackgroundColor: '#3ee8ff' },
-          { label: '7-day average', data: avg, borderColor: '#ff4fd8', borderDash: [6, 4], pointRadius: 0, tension: 0.35 },
-          { label: 'Goal', data: labels.map(() => C.GOAL), borderColor: 'rgba(255,201,77,.7)', borderWidth: 1, pointRadius: 0, borderDash: [2, 4] },
+        data: { labels: testDays.map(k => k.slice(5)), datasets: [
+          { label: 'Daily test', data: vals, borderColor: '#3b5bdb', backgroundColor: 'rgba(59,91,219,.08)', fill: true, tension: 0.3, borderWidth: 3, pointRadius: 4, pointBackgroundColor: '#fff', pointBorderWidth: 2.5 },
+          { label: '7-day average', data: avg7, borderColor: '#ff8a00', borderDash: [6, 4], borderWidth: 2.5, pointRadius: 0, tension: 0.3 },
+          { label: 'Goal', data: vals.map(() => C.GOAL), borderColor: '#b9b2a5', borderWidth: 1.5, pointRadius: 0, borderDash: [2, 4] },
         ] },
         options: {
-          maintainAspectRatio: false, animation: reducedMotion ? false : { duration: 900 },
+          maintainAspectRatio: false, animation: reducedMotion ? false : { duration: 700 },
           interaction: { mode: 'index', intersect: false },
           scales: {
-            y: { min: 0, suggestedMax: 110, grid: { color: 'rgba(255,255,255,.05)' }, ticks: { color: '#8590b3' } },
-            x: { grid: { display: false }, ticks: { color: '#8590b3', maxRotation: 0, autoSkip: true } },
+            y: { min: 0, suggestedMax: 110, grid: { color: '#efebe3' }, ticks: { color: '#857f75' } },
+            x: { grid: { display: false }, ticks: { color: '#857f75', maxRotation: 0, autoSkip: true } },
           },
-          plugins: { legend: { labels: { color: '#e8edff', boxWidth: 12 } } },
+          plugins: { legend: { labels: { color: '#2d2a26', boxWidth: 12, font: { family: 'Nunito', weight: '700' } } } },
         },
       });
     } else if (!window.Chart && testDays.length) {
       $('#chartEmpty').hidden = false;
-      $('#chartEmpty').textContent = 'Chart library did not load (offline?). Your data is safe.';
+      $('#chartEmpty').textContent = 'The chart library did not load (offline?). Your data is safe.';
     }
 
-    // Heatmap
     const heat = buildKb($('#heatKb'));
     const known = C.LETTERS.split('').filter(k => db.keys[k] && db.keys[k].n >= 5 && db.keys[k].ms > 0);
-    const avgMs = known.length ? known.reduce((a, k) => a + db.keys[k].ms, 0) / known.length : 0;
+    const avgMs = known.length ? avg(known.map(k => db.keys[k].ms)) : 0;
     for (const ch of C.LETTERS) {
       const el = heat[ch], s = db.keys[ch];
       if (!s || s.n < 5 || !s.ms) { el.classList.add('none'); el.title = `${ch}: not enough data yet`; continue; }
       const bad = Math.min(1, s.err / 0.15) * 0.6 + Math.min(1, Math.max(0, s.ms / avgMs - 0.8) / 0.8) * 0.4;
-      el.style.background = `hsl(${Math.round(140 * (1 - bad))} 85% 58%)`;
-      el.title = `${ch}: ${Math.round(s.err * 100)}% errors · ${Math.round(s.ms)} ms · ${s.n} presses`;
+      el.style.background = `hsl(${Math.round(130 * (1 - bad))} 65% 78%)`;
+      el.style.borderColor = `hsl(${Math.round(130 * (1 - bad))} 45% 58%)`;
+      el.title = `${ch}: ${Math.round(s.err * 100)}% missed · ${Math.round(s.ms)} ms · ${s.n} presses`;
     }
     heat[' '].classList.add('none');
-    heat[' '].title = '';
     const weak = C.weakKeys(db.keys, 3);
     $('#weakList').textContent = weak.length ? weak.join(', ') : 'type a bit more to find out';
 
-    // Calendar: 16 weeks, columns are weeks starting Sunday.
     const cal = $('#cal'); cal.innerHTML = '';
     const now = new Date(), start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay() - 15 * 7);
     for (const d = new Date(start); d <= now; d.setDate(d.getDate() + 1)) {
-      const k = C.dateKey(d), m = ((db.days[k] && db.days[k].ms) || 0) / 60000;
+      const k = C.dateKey(d), day = db.days[k], m = ((day && day.ms) || 0) / 60000;
       const i = document.createElement('i');
-      i.className = (m === 0 ? '' : m < 3 ? 'l1' : m < 7 ? 'l2' : m < 12 ? 'l3' : 'l4') + (k === todayKey() ? ' today' : '');
-      i.title = `${k}: ${m.toFixed(1)} min`;
+      i.className = (day && day.perfect ? 'gold' : m === 0 ? '' : m < 15 ? 'l1' : m < 30 ? 'l2' : 'l3') + (k === todayKey() ? ' today' : '');
+      i.title = `${k}: ${Math.round(m)} min`;
       cal.appendChild(i);
     }
 
-    // Recent runs
     const rows = db.sessions.slice(-15).reverse().map(s => {
       const when = new Date(s.t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-      return `<tr><td>${when}</td><td>${esc(s.title)}${s.test ? ' ⭐' : ''}</td><td class="num">${Math.round(s.wpm)}</td><td class="num">${Math.round(s.acc * 100)}%</td><td class="num">${s.secs}s</td></tr>`;
+      return `<tr><td>${when}</td><td>${esc(s.title)}${s.test ? ' (test)' : ''}</td><td class="num">${Math.round(s.wpm)}</td><td class="num">${Math.round(s.acc * 100)}%</td><td class="num">${s.secs}s</td></tr>`;
     });
-    $('#runs tbody').innerHTML = rows.join('') || '<tr><td colspan="5" class="muted">No runs yet.</td></tr>';
+    $('#runs tbody').innerHTML = rows.join('') || '<tr><td colspan="5" class="muted">No rounds yet.</td></tr>';
   }
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   // ---------- events ----------
   document.addEventListener('keydown', e => {
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!$('#overlay').hidden) {
+      if ((e.key === 'Enter' || e.key === 'Escape') && performance.now() - overlayAt > 600) { e.preventDefault(); nextOverlay(); }
+      else if (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Enter') e.preventDefault();
+      return;
+    }
     if (view === 'type' && run && !run.ended) {
-      if (e.key === 'Escape') { e.preventDefault(); plan = null; show('home'); return; }
+      if (e.key === 'Escape') { e.preventDefault(); pause(); return; }
+      if (e.key === 'Backspace') { e.preventDefault(); backspace(e.ctrlKey || e.altKey || e.metaKey); return; }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key.length !== 1 || !/[a-zA-Z ]/.test(e.key)) return;
       e.preventDefault();
       typeKey(e.key, e.getModifierState && e.getModifierState('CapsLock'));
       return;
     }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target.closest && e.target.closest('button, input, label, a, select, textarea')) return;
     if (e.key === 'Enter') {
-      if (view === 'home') { e.preventDefault(); startPlan(); }
+      if (view === 'home') { e.preventDefault(); startHour(); }
       else if (view === 'practice') { e.preventDefault(); startPractice(); }
-      // Ignore Enter right after a run ends, so a stray key doesn't skip the result.
+      // Ignore Enter right after a round ends, so a stray key doesn't skip the result.
       else if (view === 'result' && performance.now() - resultAt > 500) { e.preventDefault(); next(); }
     }
-    if (e.key === 'Escape' && view === 'result') { plan = null; show('home'); }
+    if (e.key === 'Escape' && view === 'result') show('home');
   });
 
-  document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => { plan = null; show(b.dataset.go); }));
-  $('#startPlan').addEventListener('click', startPlan);
+  document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => show(b.dataset.go)));
+  $('#startHour').addEventListener('click', startHour);
   $('#startPractice').addEventListener('click', startPractice);
-  $('#quit').addEventListener('click', () => { plan = null; show('home'); });
+  $('#quit').addEventListener('click', pause);
   $('#rNext').addEventListener('click', next);
-  $('#rHome').addEventListener('click', () => { plan = null; show('home'); });
+  $('#rHome').addEventListener('click', () => show('home'));
 
   document.querySelectorAll('.seg').forEach(seg => seg.addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
@@ -495,9 +627,10 @@
   $('#optGuide').addEventListener('change', e => {
     db.settings.guide = e.target.checked; save();
     $('#guideKb').hidden = !db.settings.guide;
+    e.target.blur(); // so the next space types instead of toggling the box
     if (run && !run.ended) setCurrent();
   });
-  $('#optSound').addEventListener('change', e => { db.settings.sound = e.target.checked; save(); });
+  $('#optSound').addEventListener('change', e => { db.settings.sound = e.target.checked; save(); e.target.blur(); });
 
   $('#exportBtn').addEventListener('click', () => {
     const url = URL.createObjectURL(new Blob([JSON.stringify(db, null, 1)], { type: 'application/json' }));
@@ -513,16 +646,15 @@
       let d;
       try { d = JSON.parse(rd.result); } catch (err) { toast('That file is not valid JSON.'); return; }
       if (!valid(d)) { toast('That file is not a Road to 100 backup.'); return; }
-      if (!confirm(`Replace your current progress with this backup (${d.sessions.length} runs)?`)) return;
-      db = Object.assign(blank(), d, { settings: Object.assign(blank().settings, d.settings) });
-      save(); renderProgress(); toast('Backup restored.');
+      if (!confirm(`Replace your current progress with this backup (${d.sessions.length} rounds)?`)) return;
+      db = migrate(d); save(); renderChrome(); renderProgress(); toast('Backup restored.');
     };
     rd.onerror = () => toast('Could not read that file.');
     rd.readAsText(f);
   });
   $('#resetBtn').addEventListener('click', () => {
     if (!confirm('Delete ALL your progress? This cannot be undone. Export a backup first if unsure.')) return;
-    db = blank(); save(); renderProgress(); toast('Progress reset.');
+    db = blank(); save(); renderChrome(); renderProgress(); toast('Progress reset.');
   });
 
   show('home');

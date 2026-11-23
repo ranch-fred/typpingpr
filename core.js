@@ -82,22 +82,51 @@
     return { n: i + 1, name: LEVELS[i], from: i * 10, to: Math.min(GOAL, (i + 1) * 10) };
   }
 
-  // Daily plan scaled to current speed. Pace cars sit just above what you can do now.
-  function dailyPlan(base) {
+  function dayNumber(key) {
+    const [y, m, d] = key.split('-').map(Number);
+    return Math.round(new Date(y, m - 1, d).getTime() / 86400000);
+  }
+
+  // Longest run of consecutive keys in a {dateKey: truthy} map.
+  function longestStreak(days) {
+    const nums = Object.keys(days).filter(k => days[k]).map(dayNumber).sort((a, b) => a - b);
+    let best = 0, cur = 0;
+    for (let i = 0; i < nums.length; i++) {
+      cur = i > 0 && nums[i] === nums[i - 1] + 1 ? cur + 1 : 1;
+      best = Math.max(best, cur);
+    }
+    return best;
+  }
+
+  // The daily hour: 60 minutes of typing time in blocks of rounds, scaled to current speed.
+  // Pace cars sit just above what you can do now.
+  function hourPlan(base) {
     const b = Math.max(10, Math.round(base));
-    const sprint = Math.round(b * 1.25);
+    const rep = (n, r) => Array.from({ length: n }, () => Object.assign({}, r));
     return [
-      { id: 'warm', title: 'Warm-up', desc: 'Easy common words. Loose hands, eyes on the screen.', secs: 60, pool: 'easy' },
-      { id: 'weak', title: 'Weak-key drill', desc: 'Words packed with the letters you miss or hesitate on.', secs: 120, pool: 'weak' },
-      { id: 'acc', title: 'Precision run', desc: 'Slow down. Aim for 97%+ accuracy, no errors.', secs: 60, pool: 'all', goalAcc: 0.97 },
-      { id: 's1', title: 'Sprint 1 of 3', desc: 'Short burst. Stay ahead of the pace car!', secs: 20, pool: 'easy', pace: sprint },
-      { id: 's2', title: 'Sprint 2 of 3', desc: 'Short burst. Stay ahead of the pace car!', secs: 20, pool: 'easy', pace: sprint },
-      { id: 's3', title: 'Sprint 3 of 3', desc: 'Short burst. Stay ahead of the pace car!', secs: 20, pool: 'easy', pace: sprint },
-      { id: 'test', title: 'Daily test', desc: 'Your official score for today. Beat the pace car.', secs: 60, pool: 'all', pace: Math.round(b * 1.05), test: true },
+      { id: 'warm', title: 'Warm-up', desc: 'Easy common words. Loose hands, eyes on the screen.', rounds: rep(5, { secs: 60, pool: 'easy' }) },
+      { id: 'test', title: 'Daily test', desc: 'One minute. Your official score for today.', rounds: [{ secs: 60, pool: 'all', pace: Math.round(b * 1.05), test: true }] },
+      { id: 'prec', title: 'Precision', desc: 'Slow and clean. Aim for 97% accuracy or better.', rounds: rep(5, { secs: 120, pool: 'all', goalAcc: 0.97 }) },
+      { id: 'weak', title: 'Weak keys', desc: 'Words packed with the letters you miss or hesitate on.', rounds: rep(5, { secs: 120, pool: 'weak' }) },
+      { id: 'sprint', title: 'Sprints', desc: '30-second bursts. Stay ahead of the pace car.', rounds: rep(20, { secs: 30, pool: 'easy', pace: Math.round(b * 1.25) }) },
+      { id: 'endure', title: 'Endurance', desc: 'Two 5-minute runs. Keep a steady rhythm.', rounds: rep(2, { secs: 300, pool: 'all', pace: b }) },
+      { id: 'weak2', title: 'Weak keys II', desc: 'Second pass on your trouble letters.', rounds: rep(5, { secs: 120, pool: 'weak' }) },
+      { id: 'cool', title: 'Cool-down', desc: 'Easy words. Relaxed and accurate.', rounds: rep(4, { secs: 60, pool: 'easy' }) },
     ];
   }
 
-  const Core = { LETTERS, GOAL, wpm, accuracy, dateKey, streak, recordKey, weakKeys, genWords, projectDays, level, dailyPlan };
+  // Seconds of the plan finished before position (block, round).
+  function planDoneSecs(plan, block, round) {
+    let s = 0;
+    for (let i = 0; i < plan.length && i <= block; i++) {
+      const n = i < block ? plan[i].rounds.length : Math.min(round, plan[i].rounds.length);
+      for (let j = 0; j < n; j++) s += plan[i].rounds[j].secs;
+    }
+    return s;
+  }
+
+  const Core = { LETTERS, GOAL, wpm, accuracy, dateKey, dayNumber, streak, longestStreak, recordKey, weakKeys, genWords,
+    projectDays, level, hourPlan, planDoneSecs };
   if (typeof module !== 'undefined' && module.exports) module.exports = Core;
   else root.Core = Core;
 })(this);

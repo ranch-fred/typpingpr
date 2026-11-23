@@ -48,8 +48,17 @@ assert.strictEqual(C.projectDays([{ x: 0, y: 99 }, { x: 1, y: 100 }, { x: 2, y: 
 // Levels and plan.
 assert.strictEqual(C.level(10).n, 2);
 assert.strictEqual(C.level(150).name, 'Centurion');
-const plan = C.dailyPlan(40);
-assert.strictEqual(plan[plan.length - 1].test, true);
-assert.strictEqual(plan.find(s => s.id === 's1').pace, 50);
+const plan = C.hourPlan(40);
+assert.strictEqual(C.planDoneSecs(plan, plan.length, 0), 3600, 'plan must be exactly one hour');
+assert.strictEqual(C.planDoneSecs(plan, 0, 0), 0);
+assert.strictEqual(C.planDoneSecs(plan, 1, 0), 300);
+assert.strictEqual(C.planDoneSecs(plan, 2, 3), 360 + 360);
+assert.strictEqual(plan.filter(b => b.rounds.some(r => r.test)).length, 1);
+assert.strictEqual(plan.find(b => b.id === 'sprint').rounds[0].pace, 50);
+
+// Longest streak.
+assert.strictEqual(C.longestStreak({}), 0);
+assert.strictEqual(C.longestStreak({ '2026-11-28': 1, '2026-11-29': 1, '2026-11-30': 1, '2026-12-01': 1, '2026-12-05': 1 }), 4);
+assert.strictEqual(C.longestStreak({ '2026-11-01': 1, '2026-11-02': 0, '2026-11-03': 1 }), 1);
 
 console.log('all tests passed');
