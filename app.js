@@ -47,7 +47,7 @@
     const k = C.dateKey(new Date(s.t));
     const d = days[k] || (days[k] = { ms: 0, best: 0, accSum: 0, n: 0, perfect: false });
     if (addMs) d.ms += s.secs * 1000;
-    if (s.test) d.best = Math.max(d.best, s.wpm);
+    if (s.test) { d.best = Math.max(d.best, s.wpm); d.tested = true; }
     d.accSum += s.acc; d.n++;
     return d;
   }
@@ -83,9 +83,12 @@
   }
   const bestTest = () => Object.values(db.days).reduce((m, d) => Math.max(m, d.best || 0), 0);
   const todayMs = () => (db.days[todayKey()] && db.days[todayKey()].ms) || 0;
+  // A day keeps the streak if you finished a daily test, or typed 15+ minutes of anything.
+  const dayLit = d => !!d && (d.tested || d.best > 0 || d.ms >= STREAK_MS);
+  const todayLit = () => dayLit(db.days[todayKey()]);
   function qualified() {
     const q = {};
-    for (const k in db.days) if (db.days[k].ms >= STREAK_MS) q[k] = 1;
+    for (const k in db.days) if (dayLit(db.days[k])) q[k] = 1;
     return q;
   }
   const streakNow = () => C.streak(qualified(), new Date());
@@ -199,7 +202,7 @@
   }
   function renderChrome() {
     $('#chipStreakN').textContent = streakNow();
-    $('#chipStreak').classList.toggle('lit', todayMs() >= STREAK_MS);
+    $('#chipStreak').classList.toggle('lit', todayLit());
     $('#chipMinN').textContent = Math.floor(planSecs() / 60);
   }
 
@@ -242,16 +245,15 @@
       return `<li class="node ${state}" style="--c:${c};--c-dk:${cd};--i:${i}"><span class="dot">${dot}</span><div class="node-body"><div class="grow"><b>${b.title}</b><span>${m} min · ${n} round${n > 1 ? 's' : ''} · ${b.desc}</span></div><span class="node-prog">${prog}</span></div></li>`;
     }).join('');
 
-    const st = streakNow(), lit = todayMs() >= STREAK_MS;
-    const left = Math.max(1, Math.ceil((STREAK_MS - todayMs()) / 60000));
+    const st = streakNow(), lit = todayLit();
     $('#streakCard').classList.toggle('lit', lit);
     $('#streakN').textContent = st;
     $('#streakMsg').textContent = lit ? 'Streak extended today. See you tomorrow!'
-      : st ? `Type ${left} more minute${left > 1 ? 's' : ''} today to keep your streak alive.`
-      : `Type ${left} minutes today to start a streak.`;
+      : st ? "Finish today's daily test to keep your streak alive."
+      : "Finish today's daily test to start a streak.";
     renderWeek($('#week'));
     $('#kipSay').textContent = done ? 'Perfect day! I am so proud of you.'
-      : st && !lit ? `Don't let the flame go out! ${left} minutes saves your ${st}-day streak.`
+      : st && !lit ? `Don't let the flame go out! Today's daily test saves your ${st}-day streak.`
       : secs ? `${mins} down, ${60 - mins} to go. You've got this!`
       : st ? `Day ${st + (lit ? 0 : 1)}! Ready for today's hour?` : "Hi! I'm Kip. Let's warm up those fingers!";
     $('#streakBest').textContent = Math.max(st, C.longestStreak(qualified()));
@@ -266,6 +268,13 @@
     $('#speedLevel').textContent = !has ? 'Your first daily test sets your starting speed.'
       : b >= C.GOAL ? `Level ${lv.n}: ${lv.name}. You made it to 100!`
       : `Level ${lv.n}: ${lv.name}. ${Math.max(1, Math.ceil(lv.to - b))} wpm to the next level.`;
+    const lt = tests().slice(-1)[0];
+    $('#lastTest').hidden = !lt;
+    if (lt) {
+      const ago = C.dayNumber(todayKey()) - C.dayNumber(C.dateKey(new Date(lt.t)));
+      const when = ago === 0 ? 'today' : ago === 1 ? 'yesterday' : new Date(lt.t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      $('#lastTest').innerHTML = `Last test <b>${Math.round(lt.wpm)} wpm</b> · <b>${Math.round(lt.acc * 100)}%</b> · ${when}`;
+    }
     $('#tip').textContent = TIPS[Math.floor(Math.random() * TIPS.length)];
   }
 
@@ -493,7 +502,7 @@
       acc: Math.round(C.accuracy(run.keys - run.wrong, run.keys) * 1000) / 1000,
       combo: run.maxCombo };
     const counted = run.keys >= 5;
-    const wasLit = todayMs() >= STREAK_MS, prevBest = bestTest();
+    const wasLit = todayLit(), prevBest = bestTest();
     let blockDone = false, dayDone = false;
     if (counted) {
       db.sessions.push(r);
@@ -511,7 +520,7 @@
     renderChrome();
 
     const party = [];
-    if (counted && !wasLit && todayMs() >= STREAK_MS) party.push('streak');
+    if (counted && !wasLit && todayLit()) party.push('streak');
     if (dayDone) party.push('perfect');
     const pb = counted && r.test && r.wpm > prevBest;
 
@@ -616,7 +625,7 @@
       $('#ovText').textContent = 'You finished the full hour of training. This is how 100 WPM happens.';
     } else {
       $('#ovTitle').textContent = st === 1 ? 'You started a streak!' : `${st} day streak!`;
-      $('#ovText').textContent = MILESTONES.includes(st) ? `${st} days in a row. That is a milestone. Keep it burning.` : 'You typed 15 minutes today. Come back tomorrow to keep it going.';
+      $('#ovText').textContent = MILESTONES.includes(st) ? `${st} days in a row. That is a milestone. Keep it burning.` : 'Your flame is lit for today. Come back tomorrow to keep it going.';
     }
     renderWeek($('#ovWeek'));
     $('#overlay').hidden = false;

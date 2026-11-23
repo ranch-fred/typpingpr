@@ -15,7 +15,7 @@ and open the link it gives you every day.
   It adapts to your current speed and to the letters you miss or hesitate on.
 - **Red and green letters**: correct letters turn green, mistakes turn red. You must Backspace a mistake before
   moving past the word (Ctrl+Backspace deletes the whole word).
-- **Streaks**: type 15 minutes a day to keep your streak. Finish the full hour for a gold "perfect day".
+- **Streaks**: finish the daily test (or type 15 minutes) each day to keep your streak. Finish the full hour for a gold "perfect day".
   Week view, best streak, milestones and celebrations.
 - **Pace car**: an orange marker moving at a target speed just above yours. Stay ahead of it.
 - **Key guide** (optional): highlights the next key on screen, so you look at the screen and not your hands.
