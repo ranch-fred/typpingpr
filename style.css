@@ -408,6 +408,18 @@ body {
 .kb .k.hit { background: var(--green); border-color: var(--green-dk); }
 .kb .k.miss { background: var(--red); border-color: #b02525; }
 
+/* Free type: the question card and your own answer. */
+.question {
+  display: flex; align-items: center; gap: .9rem; margin: .4rem 0 .2rem; padding: .7rem 1rem;
+  background: var(--accent); color: #fff; border-radius: 16px; box-shadow: 0 5px 0 var(--accent-dk);
+  animation: bubbleIn .45s cubic-bezier(.2,1.5,.4,1);
+}
+.question p { margin: 0; font-size: 1.25rem; font-weight: 900; }
+.q-mark { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: #fff; color: var(--accent-dk); font-weight: 900; font-size: 1.4rem; }
+.ans { color: var(--ink); white-space: pre-wrap; }
+.answer { display: inline-block; text-align: left; background: var(--bg); border: 2px solid var(--line); border-radius: 12px; padding: .6rem .8rem; margin-bottom: .4rem; color: var(--ink); font-family: var(--mono); font-size: .95rem; }
+.answer b { font-family: var(--sans); }
+
 /* Particles */
 #fx { position: fixed; inset: 0; pointer-events: none; z-index: 70; overflow: hidden; }
 #fx i { position: absolute; width: 9px; height: 9px; border-radius: 2px; animation: fly .8s cubic-bezier(.15,.7,.3,1) forwards; }

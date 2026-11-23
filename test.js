@@ -48,13 +48,24 @@ assert.strictEqual(C.projectDays([{ x: 0, y: 99 }, { x: 1, y: 100 }, { x: 2, y: 
 // Levels and plan.
 assert.strictEqual(C.level(10).n, 2);
 assert.strictEqual(C.level(150).name, 'Centurion');
-const plan = C.hourPlan(40);
-assert.strictEqual(C.planDoneSecs(plan, plan.length, 0), 3600, 'plan must be exactly one hour');
+const plan = C.dailyPlan(40);
+assert.strictEqual(C.planDoneSecs(plan, plan.length, 0), 1200, 'plan must be exactly 20 minutes');
 assert.strictEqual(C.planDoneSecs(plan, 0, 0), 0);
-assert.strictEqual(C.planDoneSecs(plan, 1, 0), 300);
-assert.strictEqual(C.planDoneSecs(plan, 2, 3), 360 + 360);
+assert.strictEqual(C.planDoneSecs(plan, 1, 0), 120);
+assert.strictEqual(C.planDoneSecs(plan, 2, 1), 180 + 90);
 assert.strictEqual(plan.filter(b => b.rounds.some(r => r.test)).length, 1);
 assert.strictEqual(plan.find(b => b.id === 'sprint').rounds[0].pace, 50);
+assert.strictEqual(plan.find(b => b.id === 'free').rounds.length, 3);
+
+// Remap today's position from the old 60-minute layout.
+const OLD = ['warm', 'test', 'prec', 'weak', 'sprint', 'endure', 'weak2', 'cool'];
+assert.deepStrictEqual(C.remapPosition(OLD, plan, 0, 0), { block: 0, round: 0 });
+assert.deepStrictEqual(C.remapPosition(OLD, plan, 0, 1), { block: 0, round: 1 });
+assert.deepStrictEqual(C.remapPosition(OLD, plan, 0, 3), { block: 1, round: 0 }); // 3 of old 5 warm-ups > new 2
+assert.deepStrictEqual(C.remapPosition(OLD, plan, 2, 0), { block: 2, round: 0 }); // warm-up + test done
+assert.deepStrictEqual(C.remapPosition(OLD, plan, 5, 1), { block: 5, round: 0 }); // up to sprints done -> free type next
+assert.deepStrictEqual(C.remapPosition(OLD, plan, 8, 0), { block: 5, round: 0 }); // old plan finished; free type is new
+assert.deepStrictEqual(C.remapPosition(OLD.concat('free'), plan, 9, 0), { block: plan.length, round: 0 });
 
 // Longest streak.
 assert.strictEqual(C.longestStreak({}), 0);

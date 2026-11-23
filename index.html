@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Road to 100</title>
-  <meta name="description" content="Daily one-hour touch-typing trainer with streaks, adaptive drills and progress tracking to 100 WPM.">
+  <meta name="description" content="Daily 20-minute touch-typing trainer with streaks, adaptive drills and progress tracking to 100 WPM.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23ff8a00'/%3E%3Cpath d='M16 5c.7 4.7-2 7.3-4 10-2 2.7-3 4.6-3 7a7 7 0 0 0 14 0c0-4-2-6.7-4-8.7.3 2.4-.7 4-2 4.7.7-4.3.4-10-1-13z' fill='%23fff'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -32,7 +32,7 @@
       </nav>
       <div class="chips">
         <span class="chip chip-streak" id="chipStreak" title="Day streak"><svg><use href="#flame"/></svg><b id="chipStreakN">0</b></span>
-        <span class="chip chip-min" title="Minutes of today's hour done"><svg><use href="#clock"/></svg><b id="chipMinN">0</b><span>/60</span></span>
+        <span class="chip chip-min" title="Minutes of today's session done"><svg><use href="#clock"/></svg><b id="chipMinN">0</b><span id="chipMinGoal">/20</span></span>
       </div>
     </div>
   </header>
@@ -46,15 +46,15 @@
             <div class="today-head">
               <div>
                 <p class="kicker" id="todayKicker">Today</p>
-                <h1 id="todayTitle">Your daily hour</h1>
-                <div class="today-num"><b id="todayMin">0</b><span>/ 60 min</span></div>
+                <h1 id="todayTitle">Your daily 20 minutes</h1>
+                <div class="today-num"><b id="todayMin">0</b><span id="todayGoal">/ 20 min</span></div>
               </div>
               <div class="today-kip">
                 <div class="bubble" id="kipSay"></div>
                 <div class="kip-wrap" id="kipHome"></div>
               </div>
             </div>
-            <div class="meter" role="progressbar" aria-label="Minutes of today's hour done" aria-valuemin="0" aria-valuemax="60" id="todayMeter"><div id="todayFill"></div></div>
+            <div class="meter" role="progressbar" aria-label="Minutes of today's session done" aria-valuemin="0" aria-valuemax="20" id="todayMeter"><div id="todayFill"></div></div>
             <div class="today-foot">
               <button class="btn btn-primary btn-lg" id="startHour">Start <kbd>Enter</kbd></button>
               <p class="muted small" id="todayNote">Only time spent typing counts. Stop whenever you like and pick up where you left off.</p>
@@ -88,7 +88,7 @@
     <!-- PRACTICE -->
     <section id="practice" class="view" hidden>
       <h2>Free practice</h2>
-      <p class="muted">Extra rounds outside the daily hour. They count toward your streak and stats.</p>
+      <p class="muted">Extra rounds outside the daily session. They count toward your streak and stats.</p>
       <div class="card form">
         <fieldset><legend>Duration</legend>
           <div class="seg" data-name="secs">
@@ -97,7 +97,7 @@
         </fieldset>
         <fieldset><legend>Words</legend>
           <div class="seg" data-name="pool">
-            <button data-v="easy">Common</button><button data-v="all" class="on">All words</button><button data-v="weak">My weak keys</button>
+            <button data-v="easy">Common</button><button data-v="all" class="on">All words</button><button data-v="weak">My weak keys</button><button data-v="free">Free type</button>
           </div>
         </fieldset>
         <fieldset><legend>Pace car</legend>
@@ -123,6 +123,8 @@
           <button class="btn btn-sm" id="quit">Pause <kbd>Esc</kbd></button>
         </div>
       </div>
+
+      <div class="question" id="question" hidden><span class="q-mark">?</span><p id="questionText"></p></div>
 
       <div class="hud">
         <div class="hud-time"><b id="hTime">60</b><span>seconds</span></div>
@@ -188,9 +190,9 @@
         </div>
         <div class="card">
           <h3>Practice calendar</h3>
-          <p class="muted small">Last 16 weeks. Darker means more minutes. Gold means you finished the full hour.</p>
+          <p class="muted small">Last 16 weeks. Darker means more minutes. Gold means you finished the whole daily session.</p>
           <div class="cal" id="cal"></div>
-          <div class="cal-legend"><span>less</span><i></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="gold"></i><span>full hour</span></div>
+          <div class="cal-legend"><span>less</span><i></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="gold"></i><span>full session</span></div>
         </div>
       </div>
 

@@ -98,21 +98,32 @@
     return best;
   }
 
-  // The daily hour: 60 minutes of typing time in blocks of rounds, scaled to current speed.
+  // The daily session: 20 minutes of typing time in blocks of rounds, scaled to current speed.
   // Pace cars sit just above what you can do now.
-  function hourPlan(base) {
+  function dailyPlan(base) {
     const b = Math.max(10, Math.round(base));
     const rep = (n, r) => Array.from({ length: n }, () => Object.assign({}, r));
     return [
-      { id: 'warm', title: 'Warm-up', desc: 'Easy common words. Loose hands, eyes on the screen.', rounds: rep(5, { secs: 60, pool: 'easy' }) },
+      { id: 'warm', title: 'Warm-up', desc: 'Easy common words. Loose hands, eyes on the screen.', rounds: rep(2, { secs: 60, pool: 'easy' }) },
       { id: 'test', title: 'Daily test', desc: 'One minute. Your official score for today.', rounds: [{ secs: 60, pool: 'all', pace: Math.round(b * 1.05), test: true }] },
-      { id: 'prec', title: 'Precision', desc: 'Slow and clean. Aim for 97% accuracy or better.', rounds: rep(5, { secs: 120, pool: 'all', goalAcc: 0.97 }) },
-      { id: 'weak', title: 'Weak keys', desc: 'Words packed with the letters you miss or hesitate on.', rounds: rep(5, { secs: 120, pool: 'weak' }) },
-      { id: 'sprint', title: 'Sprints', desc: '30-second bursts. Stay ahead of the pace car.', rounds: rep(20, { secs: 30, pool: 'easy', pace: Math.round(b * 1.25) }) },
-      { id: 'endure', title: 'Endurance', desc: 'Two 5-minute runs. Keep a steady rhythm.', rounds: rep(2, { secs: 300, pool: 'all', pace: b }) },
-      { id: 'weak2', title: 'Weak keys II', desc: 'Second pass on your trouble letters.', rounds: rep(5, { secs: 120, pool: 'weak' }) },
-      { id: 'cool', title: 'Cool-down', desc: 'Easy words. Relaxed and accurate.', rounds: rep(4, { secs: 60, pool: 'easy' }) },
+      { id: 'prec', title: 'Precision', desc: 'Slow and clean. Aim for 97% accuracy or better.', rounds: rep(2, { secs: 90, pool: 'all', goalAcc: 0.97 }) },
+      { id: 'weak', title: 'Weak keys', desc: 'Words packed with the letters you miss or hesitate on.', rounds: rep(3, { secs: 90, pool: 'weak' }) },
+      { id: 'sprint', title: 'Sprints', desc: '30-second bursts. Stay ahead of the pace car.', rounds: rep(4, { secs: 30, pool: 'easy', pace: Math.round(b * 1.25) }) },
+      { id: 'free', title: 'Free type', desc: 'Answer a question in your own words. Graded on accuracy.', rounds: rep(3, { secs: 60, pool: 'free', free: true }) },
+      { id: 'endure', title: 'Endurance', desc: 'One 3-minute run. Keep a steady rhythm.', rounds: [{ secs: 180, pool: 'all', pace: b }] },
+      { id: 'cool', title: 'Cool-down', desc: 'Easy words. Relaxed and accurate.', rounds: [{ secs: 90, pool: 'easy' }] },
     ];
+  }
+
+  // Move a saved position (block, round) from an older plan layout onto `plan`:
+  // blocks finished in the old layout count as finished here, matched by id.
+  function remapPosition(oldIds, plan, block, round) {
+    const done = oldIds.slice(0, block);
+    let i = plan.findIndex(b => !done.includes(b.id));
+    if (i === -1) return { block: plan.length, round: 0 };
+    let r = plan[i].id === oldIds[block] ? Math.min(round, plan[i].rounds.length) : 0;
+    if (r >= plan[i].rounds.length) { i++; r = 0; }
+    return { block: i, round: r };
   }
 
   // Seconds of the plan finished before position (block, round).
@@ -126,7 +137,7 @@
   }
 
   const Core = { LETTERS, GOAL, wpm, accuracy, dateKey, dayNumber, streak, longestStreak, recordKey, weakKeys, genWords,
-    projectDays, level, hourPlan, planDoneSecs };
+    projectDays, level, dailyPlan, remapPosition, planDoneSecs };
   if (typeof module !== 'undefined' && module.exports) module.exports = Core;
   else root.Core = Core;
 })(this);

@@ -13,17 +13,43 @@
     'Never look down. If you forget a key, turn on the Key guide and look at the screen instead.',
     'Keep your wrists floating and fingers curved. Tension makes you slow.',
     'Read one word ahead of where you are typing.',
-    'Short breaks between blocks keep your hands fresh for the whole hour.',
+    'Short breaks between blocks keep your hands fresh for the whole session.',
+    'In Free type, think of the whole sentence first, then type it in one smooth go.',
     'Use the right finger every time, even when another one feels quicker. It pays off past 60 WPM.',
     'Aim for a steady rhythm instead of bursts. Even keystrokes are fast keystrokes.',
     'Hit the space bar with your thumb, without moving your hands.',
     'When a letter turns red, stop, Backspace, and type it slowly once. That is how the fix sticks.',
   ];
-  // Each block of the hour has its own color: [main, darker edge].
+  // Each block of the session has its own color: [main, darker edge].
   const BLOCK_COLORS = {
     warm: ['#f59f00', '#c77f00'], test: ['#3b5bdb', '#2b44a8'], prec: ['#2f9e44', '#237032'], weak: ['#7048e8', '#5434b8'],
-    sprint: ['#f03e3e', '#c22f2f'], endure: ['#0ca678', '#087f5b'], weak2: ['#e64980', '#b8346a'], cool: ['#1c9be6', '#1478b4'],
+    sprint: ['#f03e3e', '#c22f2f'], free: ['#e64980', '#b8346a'], endure: ['#0ca678', '#087f5b'], cool: ['#1c9be6', '#1478b4'],
   };
+  // Block order of the old 60-minute plan, used once to carry today's place over to the 20-minute plan.
+  const OLD_PLAN_IDS = ['warm', 'test', 'prec', 'weak', 'sprint', 'endure', 'weak2', 'cool'];
+  const PLAN_V = 2;
+  const QUESTIONS = [
+    'what did you eat today and did you like it',
+    'describe your bedroom to someone who has never seen it',
+    'what is your favorite game and why do you like it',
+    'tell me about your best friend',
+    'what would you do with a whole free day',
+    'describe the weather outside right now',
+    'what is something new you learned this week',
+    'if you could have any animal as a pet what would it be and why',
+    'describe your dream house',
+    'what would you do if you could fly for one day',
+    'what is your favorite food and how is it made',
+    'tell me about a movie or show you really like',
+    'what do you want to get better at this year',
+    'describe a perfect weekend',
+    'what is the best place you have ever visited',
+    'if you could invent something what would it be',
+    'what makes a good friend',
+    'describe your morning from waking up to now',
+    'what would you buy if someone gave you a hundred dollars',
+    'what is a skill you are proud of and how did you learn it',
+  ];
   const PRACTICE_COLOR = ['#7048e8', '#5434b8'];
   const COMBO_SHOUTS = { 10: 'Nice! 10', 25: 'Great! 25', 50: 'On fire! 50', 75: 'Wow! 75', 100: 'Unstoppable! 100', 150: 'Legend! 150', 200: 'Machine! 200' };
   const CONFETTI = ['#ff8a00', '#f5b300', '#3b5bdb', '#2f9e44', '#e64980', '#7048e8', '#0ca678'];
@@ -93,14 +119,20 @@
   }
   const streakNow = () => C.streak(qualified(), new Date());
 
-  // Today's hour: position is (block, round), reset each day.
+  // Today's session: position is (block, round), reset each day.
   function plan() {
     const k = todayKey();
-    if (!db.plan || db.plan.date !== k) db.plan = { date: k, block: 0, round: 0, base: baseline() };
+    if (!db.plan || db.plan.date !== k) db.plan = { date: k, block: 0, round: 0, base: baseline(), v: PLAN_V };
+    if (db.plan.v !== PLAN_V) {
+      // Saved during the old 60-minute plan: keep the blocks already done today.
+      Object.assign(db.plan, C.remapPosition(OLD_PLAN_IDS, C.dailyPlan(db.plan.base), db.plan.block, db.plan.round), { v: PLAN_V });
+      save();
+    }
     return db.plan;
   }
-  const blocks = () => C.hourPlan(plan().base);
+  const blocks = () => C.dailyPlan(plan().base);
   const planSecs = () => C.planDoneSecs(blocks(), plan().block, plan().round);
+  const goalMin = () => Math.round(C.planDoneSecs(blocks(), blocks().length, 0) / 60);
   const planDone = () => plan().block >= blocks().length;
   const blockSecs = b => b.rounds.reduce((a, r) => a + r.secs, 0);
 
@@ -204,6 +236,7 @@
     $('#chipStreakN').textContent = streakNow();
     $('#chipStreak').classList.toggle('lit', todayLit());
     $('#chipMinN').textContent = Math.floor(planSecs() / 60);
+    $('#chipMinGoal').textContent = '/' + goalMin();
   }
 
   // ---------- views ----------
@@ -221,19 +254,21 @@
 
   function renderHome() {
     const p = plan(), bl = blocks(), secs = planSecs(), done = planDone();
-    const mins = Math.floor(secs / 60);
+    const mins = Math.floor(secs / 60), goal = goalMin();
     $('#todayKicker').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
-    $('#todayTitle').textContent = done ? 'Hour complete!' : secs ? 'Keep going' : 'Your daily hour';
+    $('#todayTitle').textContent = done ? 'All done for today!' : secs ? 'Keep going' : `Your daily ${goal} minutes`;
     $('#todayMin').textContent = mins;
+    $('#todayGoal').textContent = `/ ${goal} min`;
     $('#todayMeter').setAttribute('aria-valuenow', mins);
+    $('#todayMeter').setAttribute('aria-valuemax', goal);
     const card = $('#todayCard');
     card.classList.toggle('complete', done);
     if (!done) { const c = BLOCK_COLORS[bl[p.block].id]; card.style.setProperty('--c', c[0]); card.style.setProperty('--c-dk', c[1]); }
     else { card.style.removeProperty('--c'); card.style.removeProperty('--c-dk'); }
-    requestAnimationFrame(() => { $('#todayFill').style.width = (secs / 36) + '%'; });
-    $('#startHour').firstChild.textContent = done ? 'Free practice ' : secs ? `Continue: ${bl[p.block].title} ` : "Start today's hour ";
+    requestAnimationFrame(() => { $('#todayFill').style.width = Math.min(100, secs / (goal * 0.6)) + '%'; });
+    $('#startHour').firstChild.textContent = done ? 'Free practice ' : secs ? `Continue: ${bl[p.block].title} ` : "Start today's session ";
     $('#todayNote').textContent = done
-      ? 'You did the full hour today. Extra practice still counts toward your stats.'
+      ? 'You finished the whole session today. Extra practice still counts toward your stats.'
       : 'Only time spent typing counts. Stop whenever you like and pick up where you left off.';
 
     $('#path').innerHTML = bl.map((b, i) => {
@@ -254,8 +289,8 @@
     renderWeek($('#week'));
     $('#kipSay').textContent = done ? 'Perfect day! I am so proud of you.'
       : st && !lit ? `Don't let the flame go out! Today's daily test saves your ${st}-day streak.`
-      : secs ? `${mins} down, ${60 - mins} to go. You've got this!`
-      : st ? `Day ${st + (lit ? 0 : 1)}! Ready for today's hour?` : "Hi! I'm Kip. Let's warm up those fingers!";
+      : secs ? `${mins} down, ${goal - mins} to go. You've got this!`
+      : st ? `Day ${st + (lit ? 0 : 1)}! Ready for today's session?` : "Hi! I'm Kip. Let's warm up those fingers!";
     $('#streakBest').textContent = Math.max(st, C.longestStreak(qualified()));
     const next = MILESTONES.find(m => m > st);
     $('#streakNext').textContent = next ? `Next milestone: ${next} days` : '';
@@ -297,17 +332,37 @@
     if (warn) hintTimer = setTimeout(() => setHint(''), 1800);
   }
 
+  let recentQs = [];
+  function pickQuestion() {
+    const pool = QUESTIONS.filter(q => !recentQs.includes(q));
+    const q = pool[Math.floor(Math.random() * pool.length)];
+    recentQs = recentQs.concat(q).slice(-8);
+    return q;
+  }
+
   function startRun(opts) {
     cancelAnimationFrame(raf);
-    const src = poolWords(opts.pool);
+    const free = !!opts.free;
+    const src = free ? null : poolWords(opts.pool);
     const track = $('#track');
-    run = { opts, src, text: '', spans: [], pos: 0, reds: new Set(), ever: new Set(), tried: new Set(), wordClean: true,
+    run = { opts, src, free, text: '', spans: [], pos: 0, reds: new Set(), ever: new Set(), tried: new Set(), wordClean: true,
+      ans: '', question: free ? pickQuestion() : '',
       keys: 0, wrong: 0, start: 0, last: 0, combo: 0, maxCombo: 0, ended: false,
       paceIdx: -1, lastHud: 0, shift: 0, lh: 0, curEl: null };
     track.innerHTML = ''; track.style.transform = '';
-    appendWords(Math.max(40, Math.ceil(opts.secs * 2.6)));
+    $('#question').hidden = !free;
+    if (free) {
+      // Free type: no text to copy. Your own answer appears as you type.
+      $('#questionText').textContent = run.question + '?';
+      track.innerHTML = '<span class="ans"></span><span class="c ans-cur">&nbsp;</span>';
+      run.ansEl = track.firstChild;
+      run.spans = [track.lastChild];
+    } else {
+      appendWords(Math.max(40, Math.ceil(opts.secs * 2.6)));
+    }
 
     let desc = opts.desc || '';
+    if (free) desc = 'Type your answer in your own words: lowercase letters and spaces. Every letter you delete counts as a mistake.';
     if (opts.pool === 'weak') desc += src.focus.length ? ` Focus letters: ${src.focus.join(', ')}.` : ' Still learning your weak spots, so mixed words for now.';
     if (opts.pace) desc += ` Pace car: ${opts.pace} wpm.`;
     $('#tStep').textContent = opts.label;
@@ -329,8 +384,7 @@
     $('#typebox').classList.remove('typing', 'hot', 'fire');
     $('#caps').hidden = true;
     $('#guideKb').hidden = !db.settings.guide;
-    // Between rounds the hint line carries the last round's result instead of the start tip.
-    setHint(opts.banner ? opts.banner.text : START_HINT, false, opts.banner && opts.banner.tone);
+    setHint(free ? 'Start typing your answer. The timer begins on your first key.' : START_HINT);
     if (view !== 'type') show('type');
     if (document.activeElement) document.activeElement.blur();
     run.lh = parseFloat(getComputedStyle(track).lineHeight) || 40;
@@ -364,10 +418,55 @@
     if (shift !== run.shift) { run.shift = shift; $('#track').style.transform = `translateY(${-shift}px)`; }
     if (db.settings.guide) {
       for (const k in guideMap) guideMap[k].classList.remove('next');
-      const g = guideMap[run.reds.size ? null : run.text[run.pos]];
+      const g = guideMap[run.reds.size || run.free ? null : run.text[run.pos]];
       if (g) g.classList.add('next');
     }
   }
+
+  // Free type: any letter or space is accepted; deleting letters is what costs accuracy.
+  function freeKey(k) {
+    if (k === ' ' && (!run.ans || run.ans.endsWith(' '))) return; // no leading or double spaces
+    startClock();
+    run.keys++;
+    run.ans += k;
+    run.combo++;
+    run.maxCombo = Math.max(run.maxCombo, run.combo);
+    flashKey(k, true);
+    beep('hit');
+    run.ansEl.textContent = run.ans;
+    setCurrent();
+    if (COMBO_SHOUTS[run.combo]) comboShout(COMBO_SHOUTS[run.combo]);
+    updateCombo(true);
+  }
+  function freeBack(word) {
+    if (!run.ans) return;
+    const cut = word ? run.ans.match(/(\S+\s*|\s+)$/)[0] : run.ans.slice(-1);
+    run.ans = run.ans.slice(0, -cut.length);
+    const letters = cut.replace(/\s/g, '').length;
+    run.wrong += letters;
+    if (letters) { run.combo = 0; updateCombo(false); }
+    run.ansEl.textContent = run.ans;
+    setCurrent();
+  }
+  function startClock() {
+    if (run.start) return;
+    const now = performance.now();
+    run.start = now; run.last = now;
+    $('#typebox').classList.add('typing');
+    setHint('');
+    raf = requestAnimationFrame(tick);
+  }
+  function updateCombo(ok) {
+    const cb = $('#hCombo');
+    cb.textContent = run.combo;
+    if (ok) restartAnim(cb, 'bump');
+    const heat = run.combo >= 60 ? 'fire' : run.combo >= 25 ? 'hot' : '';
+    $('#hComboBox').className = 'combo' + (heat ? ' ' + heat : '');
+    $('#typebox').classList.toggle('hot', heat === 'hot');
+    $('#typebox').classList.toggle('fire', heat === 'fire');
+  }
+  // Letters that count toward speed: correct ones in drills, everything kept in free type.
+  const goodChars = () => run.free ? run.ans.trim().length : run.pos - run.reds.size;
 
   function shake() {
     const box = $('#typebox');
@@ -377,6 +476,7 @@
   function typeKey(key, capsOn) {
     $('#caps').hidden = !capsOn;
     const k = key.toLowerCase();
+    if (run.free) { freeKey(k); return; }
     // With a red letter pending you can finish the word, but not move past it.
     if (run.reds.size) {
       const first = Math.min(...run.reds);
@@ -388,12 +488,7 @@
       }
     }
     const now = performance.now();
-    if (!run.start) {
-      run.start = now; run.last = now;
-      $('#typebox').classList.add('typing');
-      setHint('');
-      raf = requestAnimationFrame(tick);
-    }
+    startClock();
     const exp = run.text[run.pos], span = run.spans[run.pos], ok = k === exp;
     run.keys++;
     if (!run.tried.has(run.pos)) {
@@ -424,13 +519,7 @@
     run.pos++; run.last = now;
     if (run.pos > run.text.length - 60) appendWords(30);
     setCurrent();
-    const cb = $('#hCombo');
-    cb.textContent = run.combo;
-    if (ok) restartAnim(cb, 'bump');
-    const heat = run.combo >= 60 ? 'fire' : run.combo >= 25 ? 'hot' : '';
-    $('#hComboBox').className = 'combo' + (heat ? ' ' + heat : '');
-    $('#typebox').classList.toggle('hot', heat === 'hot');
-    $('#typebox').classList.toggle('fire', heat === 'fire');
+    updateCombo(ok);
   }
 
   // Press animation on the on-screen keyboard: green for right, red for wrong.
@@ -455,6 +544,7 @@
 
   // Backspace deletes one letter; Ctrl+Backspace deletes back to the start of the word.
   function backspace(word) {
+    if (run.free) { freeBack(word); return; }
     if (!run.pos) return;
     do {
       run.pos--;
@@ -471,7 +561,7 @@
     if (now - run.lastHud > 100) {
       run.lastHud = now;
       $('#hTime').textContent = Math.ceil((total - el) / 1000);
-      $('#hWpm').textContent = el > 1500 ? Math.round(C.wpm(run.pos - run.reds.size, el)) : '–';
+      $('#hWpm').textContent = el > 1500 ? Math.round(C.wpm(goodChars(), el)) : '–';
       $('#hAcc').textContent = Math.round(C.accuracy(run.keys - run.wrong, run.keys) * 100);
     }
     const left = 1 - el / total, secsLeft = (total - el) / 1000;
@@ -498,7 +588,7 @@
     cancelAnimationFrame(raf);
     const o = run.opts, ms = o.secs * 1000;
     const r = { t: Date.now(), title: o.title, test: !!o.test, secs: o.secs, pace: o.pace || 0,
-      wpm: Math.round(C.wpm(run.pos - run.reds.size, ms) * 10) / 10,
+      wpm: Math.round(C.wpm(goodChars(), ms) * 10) / 10,
       acc: Math.round(C.accuracy(run.keys - run.wrong, run.keys) * 1000) / 1000,
       combo: run.maxCombo };
     const counted = run.keys >= 5;
@@ -524,26 +614,23 @@
     if (dayDone) party.push('perfect');
     const pb = counted && r.test && r.wpm > prevBest;
 
-    if (o.mode === 'plan' && !blockDone) {
-      // Next round of the same block: stay on the typing screen.
-      const banner = counted
-        ? { text: `Round done: ${Math.round(r.wpm)} wpm, ${Math.round(r.acc * 100)}% accuracy. Start typing for the next round.`, tone: r.acc >= 0.95 ? 'good' : 'meh' }
-        : { text: 'That round was not counted (too few keys). Try again when you are ready.', tone: 'meh' };
-      startRound(banner);
-    } else {
-      showResult(counted, pb, prevBest, blockDone, dayDone);
-      if (pb) confetti();
-    }
+    // Every round ends on the result screen; you confirm before the next one starts.
+    showResult(r, counted, pb, prevBest, blockDone, dayDone);
+    if (pb) confetti();
     celebrate(party);
   }
 
-  function showResult(counted, pb, prevBest, blockDone, dayDone) {
-    const o = run.opts, rs = flow.results.length ? flow.results : [];
+  function showResult(r, counted, pb, prevBest, blockDone, dayDone) {
+    const o = run.opts;
+    // Mid-block: this round's numbers. End of a block: the block's averages.
+    const rs = blockDone ? flow.results : counted ? [r] : [];
     const last = rs[rs.length - 1];
     const w = rs.length ? avg(rs.map(x => x.wpm)) : 0, a = rs.length ? avg(rs.map(x => x.acc)) : 1;
     const bl = blocks(), p = plan();
-    $('#rStep').textContent = o.mode === 'plan' ? `Block ${Math.min(p.block, bl.length)} of ${bl.length} done` : 'Practice';
-    $('#rTitle').textContent = dayDone ? 'You finished the full hour!' : blockDone ? `${o.title} complete` : o.title;
+    const roundsInBlock = o.mode === 'plan' ? bl.find(b => b.title === o.title).rounds.length : 1;
+    $('#rStep').textContent = o.mode !== 'plan' ? 'Practice' : blockDone ? `Block ${Math.min(p.block, bl.length)} of ${bl.length} done` : o.label;
+    $('#rTitle').textContent = dayDone ? "You finished today's session!" : blockDone ? `${o.title} complete`
+      : o.mode !== 'plan' ? o.title : counted ? `Round ${p.round} of ${roundsInBlock} done` : 'Round not counted';
     setAccent($('#resultCard'), o.color || PRACTICE_COLOR);
     // Stars: 1 for finishing, 1 for 95%+ accuracy, 1 for beating the pace car (or 98%+ when there is none).
     const stars = !rs.length ? 0 : 1 + (a >= 0.95 ? 1 : 0) + ((last.pace ? w >= last.pace : a >= 0.98) ? 1 : 0);
@@ -559,15 +646,23 @@
 
     const notes = [];
     if (!counted) notes.push('Too few keys pressed, so this round was not recorded.');
+    if (o.free && counted) {
+      const words = run.ans.trim().split(/\s+/).length;
+      notes.push(`<span class="answer"><b>${esc(run.question)}?</b><br>"${esc(run.ans.trim())}"</span>`);
+      notes.push(`${words} word${words > 1 ? 's' : ''}. You deleted ${run.wrong} letter${run.wrong === 1 ? '' : 's'}: accuracy counts every letter you had to take back.`);
+    }
     if (pb) notes.push(prevBest ? `<b>New personal best!</b> ${last.wpm.toFixed(1)} wpm, up ${(last.wpm - prevBest).toFixed(1)} on your old record.` : '<b>First test recorded.</b> This is your starting line.');
     if (last && last.pace) notes.push(w >= last.pace ? `You beat the pace car (${last.pace} wpm).` : `The pace car was ${last.pace} wpm. ${Math.ceil(last.pace - w)} to go.`);
     if (o.goalAcc) notes.push(a >= o.goalAcc ? 'Precision target hit. That is how speed gets built.' : `Accuracy was under ${Math.round(o.goalAcc * 100)}%. Slow down until it is clean.`);
     else if (rs.length && a < 0.92) notes.push('Accuracy under 92%. Slow down a little: every fix costs more time than a careful keystroke.');
     if (blockDone && !dayDone) notes.push('Good moment for a short break: shake out your hands and look away from the screen.');
-    if (dayDone) notes.push('That was the whole hour. Come back tomorrow for a fresh one and keep your streak going.');
+    if (dayDone) notes.push("That was today's whole session. Come back tomorrow for a fresh one and keep your streak going.");
     $('#rNote').innerHTML = notes.join('<br>');
 
-    $('#rNext').firstChild.textContent = o.mode !== 'plan' ? 'Again ' : dayDone ? 'See progress ' : `Next: ${bl[p.block].title} `;
+    $('#rNext').firstChild.textContent = o.mode !== 'plan' ? 'Again '
+      : dayDone ? 'See progress '
+      : blockDone ? `Next: ${bl[p.block].title} `
+      : counted ? `Next round (${p.round + 1} of ${roundsInBlock}) ` : 'Try again ';
     show('result');
     countUp($('#rWpm'), Math.round(w));
     countUp($('#rAcc'), Math.round(a * 100));
@@ -576,33 +671,33 @@
     resultAt = performance.now();
   }
 
-  function startRound(banner) {
+  function startRound() {
     const p = plan(), bl = blocks();
-    if (p.round === 0 && !banner) flow = { results: [] };
+    if (p.round === 0) flow = { results: [] };
     const b = bl[p.block], r = b.rounds[p.round];
-    startRun(Object.assign({}, r, { mode: 'plan', title: b.title, desc: b.desc, banner, color: BLOCK_COLORS[b.id],
+    startRun(Object.assign({}, r, { mode: 'plan', title: b.title, desc: b.desc, color: BLOCK_COLORS[b.id],
       label: `Block ${p.block + 1} of ${bl.length} · Round ${p.round + 1} of ${b.rounds.length}` }));
   }
   function startHour() {
     if (planDone()) { show('practice'); return; }
     flow = { results: [] };
-    startRound(null);
+    startRound();
   }
   function startPractice() {
     flow = { results: [] };
-    const p = Number(practice.pace), secs = Number(practice.secs);
-    startRun({ mode: 'practice', title: 'Free practice', label: 'Practice', secs, pool: practice.pool,
-      pace: p ? Math.round(baseline() * p) : 0, test: practice.pool === 'all' && secs >= 60 });
+    const p = Number(practice.pace), secs = Number(practice.secs), free = practice.pool === 'free';
+    startRun({ mode: 'practice', title: free ? 'Free type' : 'Free practice', label: 'Practice', secs, pool: practice.pool, free,
+      pace: p && !free ? Math.round(baseline() * p) : 0, test: practice.pool === 'all' && secs >= 60 });
   }
   function next() {
     if (!run || run.opts.mode !== 'plan') startPractice();
     else if (planDone()) show('progress');
-    else { flow = { results: [] }; startRound(null); }
+    else startRound();
   }
   function pause() {
     const mid = run && run.opts.mode === 'plan';
     show('home');
-    if (mid) toast('Paused. Your place in today\'s hour is saved.');
+    if (mid) toast("Paused. Your place in today's session is saved.");
   }
 
   // ---------- celebrations (streak / perfect day) ----------
@@ -622,7 +717,7 @@
     }, 200);
     if (item === 'perfect') {
       $('#ovTitle').textContent = 'Perfect day!';
-      $('#ovText').textContent = 'You finished the full hour of training. This is how 100 WPM happens.';
+      $('#ovText').textContent = "You finished today's whole session. This is how 100 WPM happens.";
     } else {
       $('#ovTitle').textContent = st === 1 ? 'You started a streak!' : `${st} day streak!`;
       $('#ovText').textContent = MILESTONES.includes(st) ? `${st} days in a row. That is a milestone. Keep it burning.` : 'Your flame is lit for today. Come back tomorrow to keep it going.';
@@ -700,7 +795,7 @@
     for (const d = new Date(start); d <= now; d.setDate(d.getDate() + 1)) {
       const k = C.dateKey(d), day = db.days[k], m = ((day && day.ms) || 0) / 60000;
       const i = document.createElement('i');
-      i.className = (day && day.perfect ? 'gold' : m === 0 ? '' : m < 15 ? 'l1' : m < 30 ? 'l2' : 'l3') + (k === todayKey() ? ' today' : '');
+      i.className = (day && day.perfect ? 'gold' : m === 0 ? '' : m < 5 ? 'l1' : m < 12 ? 'l2' : 'l3') + (k === todayKey() ? ' today' : '');
       i.title = `${k}: ${Math.round(m)} min`;
       cal.appendChild(i);
     }
@@ -738,6 +833,14 @@
       else if (view === 'result' && performance.now() - resultAt > 500) { e.preventDefault(); next(); }
     }
     if (e.key === 'Escape' && view === 'result') show('home');
+  });
+
+  // Font size follows window width, so re-measure lines if the window is resized mid-round.
+  window.addEventListener('resize', () => {
+    if (!run || run.ended || view !== 'type') return;
+    run.lh = parseFloat(getComputedStyle($('#track')).lineHeight) || run.lh;
+    run.shift = -1;
+    setCurrent();
   });
 
   document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => show(b.dataset.go)));
