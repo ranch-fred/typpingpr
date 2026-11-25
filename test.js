@@ -105,7 +105,9 @@ assert.strictEqual(C.mergeData(here, { sessions: [], days: {}, keys: {}, plan: n
 // Save function, with a fake Redis.
 (async () => {
   const api = require('./api/progress.js'), store = new Map();
+  let seen;
   global.fetch = async (url, o) => {
+    seen = { url, auth: o.headers.Authorization };
     const [c, k, v] = JSON.parse(o.body);
     let result = 1;
     if (c === 'INCR') { result = (store.get(k) || 0) + 1; store.set(k, result); }
@@ -120,7 +122,9 @@ assert.strictEqual(C.mergeData(here, { sessions: [], days: {}, keys: {}, plan: n
   };
   const code = 'abcdefghijklmnopqrstuvwxyz', other = code.replace('a', '2');
   assert.strictEqual((await call('GET', code)).code, 503);
-  process.env.KV_REST_API_URL = 'http://fake'; process.env.KV_REST_API_TOKEN = 'x';
+  process.env.KV_REST_API_URL = ' "https://flamingos.test" '; process.env.KV_REST_API_TOKEN = '"sessions" ';
+  await call('GET', code);
+  assert.deepStrictEqual(seen, { url: 'https://flamingos.test', auth: 'Bearer sessions' });
   assert.strictEqual((await call('GET', 'short')).code, 401);
   assert.strictEqual((await call('DELETE', code)).code, 405);
   assert.strictEqual((await call('GET', code)).body.data, null);

@@ -6,7 +6,7 @@ const TTL = 400 * 86400; // seconds; renewed on every save
 const PER_HOUR = 300;
 
 // Pasted settings often carry stray quotes or spaces.
-const env = (...names) => names.map(n => (process.env[n] || "").replace(/["'s]/g, "")).find(Boolean);
+const env = (...names) => names.map(n => (process.env[n] || "").replace(/["'\s]/g, "")).find(Boolean);
 
 async function redis(cmd) {
   const url = env("KV_REST_API_URL", "UPSTASH_REDIS_REST_URL");
