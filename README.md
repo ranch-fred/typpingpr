@@ -10,7 +10,7 @@ and open the link it gives you every day.
 
 ## What's inside
 
-- **Daily session**: 20 minutes of typing in 8 blocks (warm-up, daily test, precision, weak keys, sprints,
+- **Daily session**: 20 minutes of typing in 7 blocks (warm-up, precision, weak keys, sprints,
   free type, endurance, cool-down). Only time spent typing counts, and you can stop and resume any time that day.
   After every round you see your result and press Enter to go on.
 - **Free type**: 3 questions a day that you answer in your own words. Graded on speed and accuracy, where every
@@ -18,7 +18,7 @@ and open the link it gives you every day.
   It adapts to your current speed and to the letters you miss or hesitate on.
 - **Red and green letters**: correct letters turn green, mistakes turn red. You must Backspace a mistake before
   moving past the word (Ctrl+Backspace deletes the whole word).
-- **Streaks**: finish the daily test (or type 15 minutes) each day to keep your streak. Finish the whole session for a gold "perfect day".
+- **Streaks**: finish the warm-up (or type 15 minutes) each day to keep your streak. Finish the whole session for a gold "perfect day".
   Week view, best streak, milestones and celebrations.
 - **Pace car**: an orange marker in every round. 20 wpm on day 1, a bit faster each day, 100 wpm on day 30.
 - **Key guide** (optional): highlights the next key on screen, so you look at the screen and not your hands.

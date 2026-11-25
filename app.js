@@ -22,12 +22,15 @@
   ];
   // Each block of the session has its own color: [main, darker edge].
   const BLOCK_COLORS = {
-    warm: ['#f59f00', '#c77f00'], test: ['#3b5bdb', '#2b44a8'], prec: ['#2f9e44', '#237032'], weak: ['#7048e8', '#5434b8'],
+    warm: ['#f59f00', '#c77f00'], prec: ['#2f9e44', '#237032'], weak: ['#7048e8', '#5434b8'],
     sprint: ['#f03e3e', '#c22f2f'], free: ['#e64980', '#b8346a'], endure: ['#0ca678', '#087f5b'], cool: ['#1c9be6', '#1478b4'],
   };
-  // Block order of the old 60-minute plan, used once to carry today's place over to the 20-minute plan.
-  const OLD_PLAN_IDS = ['warm', 'test', 'prec', 'weak', 'sprint', 'endure', 'weak2', 'cool'];
-  const PLAN_V = 2;
+  // Block order of earlier plans, used once to carry today's place over to the current plan.
+  const OLD_PLAN_IDS = {
+    1: ['warm', 'test', 'prec', 'weak', 'sprint', 'endure', 'weak2', 'cool'], // 60 minutes
+    2: ['warm', 'test', 'prec', 'weak', 'sprint', 'free', 'endure', 'cool'], // 20 minutes with a daily test
+  };
+  const PLAN_V = 3;
   const QUESTIONS = [
     'what did you eat today and did you like it',
     'describe your bedroom to someone who has never seen it',
@@ -176,7 +179,7 @@
   }
   const bestRun = () => db.sessions.reduce((m, s) => Math.max(m, s.wpm), 0);
   const todayMs = () => (db.days[todayKey()] && db.days[todayKey()].ms) || 0;
-  // A day keeps the streak if you finished a daily test, or typed 15+ minutes of anything.
+  // A day keeps the streak if you finished the warm-up (saved as "tested", from the old daily test), or typed 15+ minutes of anything.
   const dayLit = d => !!d && (d.tested || d.best > 0 || d.ms >= STREAK_MS);
   const todayLit = () => dayLit(db.days[todayKey()]);
   function qualified() {
@@ -198,8 +201,9 @@
     const k = todayKey();
     if (!db.plan || db.plan.date !== k) db.plan = { date: k, block: 0, round: 0, v: PLAN_V };
     if (db.plan.v !== PLAN_V) {
-      // Saved during the old 60-minute plan: keep the blocks already done today.
-      Object.assign(db.plan, C.remapPosition(OLD_PLAN_IDS, C.dailyPlan(todayPace()), db.plan.block, db.plan.round), { v: PLAN_V });
+      // Saved during an earlier plan: keep the blocks already done today.
+      if (db.plan.block > 0 && db.days[k]) db.days[k].tested = true; // warm-up was done, so the streak counts
+      Object.assign(db.plan, C.remapPosition(OLD_PLAN_IDS[db.plan.v || 1], C.dailyPlan(todayPace()), db.plan.block, db.plan.round), { v: PLAN_V });
       save();
     }
     return db.plan;
@@ -362,11 +366,11 @@
     $('#streakCard').classList.toggle('lit', lit);
     $('#streakN').textContent = st;
     $('#streakMsg').textContent = lit ? 'Streak extended today. See you tomorrow!'
-      : st ? "Finish today's daily test to keep your streak alive."
-      : "Finish today's daily test to start a streak.";
+      : st ? "Finish today's warm-up to keep your streak alive."
+      : "Finish today's warm-up to start a streak.";
     renderWeek($('#week'));
     $('#kipSay').textContent = done ? 'Perfect day! I am so proud of you.'
-      : st && !lit ? `Don't let the flame go out! Today's daily test saves your ${st}-day streak.`
+      : st && !lit ? `Don't let the flame go out! Today's warm-up saves your ${st}-day streak.`
       : secs ? `${mins} down, ${goal - mins} to go. You've got this!`
       : st ? `Day ${st + (lit ? 0 : 1)}! Ready for today's session?` : "Hi! I'm Kip. Let's warm up those fingers!";
     $('#streakBest').textContent = Math.max(st, C.longestStreak(qualified()));
@@ -671,7 +675,7 @@
     run.ended = true;
     cancelAnimationFrame(raf);
     const o = run.opts, ms = o.secs * 1000;
-    const r = { t: Date.now(), title: o.title, test: !!o.test, secs: o.secs, pace: o.pace || 0,
+    const r = { t: Date.now(), title: o.title, secs: o.secs, pace: o.pace || 0,
       wpm: Math.round(C.wpm(goodChars(), ms) * 10) / 10,
       acc: Math.round(C.accuracy(run.keys - run.wrong, run.keys) * 1000) / 1000,
       combo: run.maxCombo };
@@ -685,6 +689,7 @@
       flow.results.push(r);
       if (o.mode === 'plan') {
         const p = plan();
+        if (blocks()[p.block].id === 'warm' && p.round === blocks()[p.block].rounds.length - 1) db.days[todayKey()].tested = true;
         p.round++;
         if (p.round >= blocks()[p.block].rounds.length) { p.block++; p.round = 0; blockDone = true; }
         if (planDone()) { dayDone = true; db.days[todayKey()].perfect = true; }
@@ -772,7 +777,7 @@
     flow = { results: [] };
     const secs = Number(practice.secs), free = practice.pool === 'free';
     startRun({ mode: 'practice', title: free ? 'Free type' : 'Free practice', label: 'Practice', secs, pool: practice.pool, free,
-      pace: todayPace(), test: practice.pool === 'all' && secs >= 60 });
+      pace: todayPace() });
   }
   function next() {
     if (!run || run.opts.mode !== 'plan') startPractice();

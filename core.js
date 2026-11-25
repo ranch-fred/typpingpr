@@ -125,8 +125,7 @@
   function dailyPlan(pace) {
     const rep = (n, r) => Array.from({ length: n }, () => Object.assign({ pace }, r));
     return [
-      { id: 'warm', title: 'Warm-up', desc: 'Easy common words. Loose hands, eyes on the screen.', rounds: rep(2, { secs: 60, pool: 'easy' }) },
-      { id: 'test', title: 'Daily test', desc: 'One minute. Your official score for today.', rounds: rep(1, { secs: 60, pool: 'all', test: true }) },
+      { id: 'warm', title: 'Warm-up', desc: 'Easy common words. Loose hands, eyes on the screen.', rounds: rep(3, { secs: 60, pool: 'easy' }) },
       { id: 'prec', title: 'Precision', desc: 'Slow and clean. Aim for 97% accuracy or better.', rounds: rep(2, { secs: 90, pool: 'all', goalAcc: 0.97 }) },
       { id: 'weak', title: 'Weak keys', desc: 'Words packed with the letters you miss or hesitate on.', rounds: rep(3, { secs: 90, pool: 'weak' }) },
       { id: 'sprint', title: 'Sprints', desc: '30-second bursts. Stay ahead of the pace car.', rounds: rep(4, { secs: 30, pool: 'easy' }) },
