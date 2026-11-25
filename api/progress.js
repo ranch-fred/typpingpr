@@ -5,9 +5,13 @@ const MAX_BYTES = 900 * 1024; // Upstash free requests stop at 1 MB
 const TTL = 400 * 86400; // seconds; renewed on every save
 const PER_HOUR = 300;
 
+// Pasted settings often carry stray quotes or spaces.
+const env = (...names) => names.map(n => (process.env[n] || "").replace(/["'s]/g, "")).find(Boolean);
+
 async function redis(cmd) {
-  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+  const url = env("KV_REST_API_URL", "UPSTASH_REDIS_REST_URL");
+  const token = env("KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_TOKEN");
+  if (!token) throw new Error("storage token missing");
   const r = await fetch(url, { method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: JSON.stringify(cmd) });
   if (!r.ok) throw new Error('storage ' + r.status);
   return (await r.json()).result;
@@ -16,7 +20,7 @@ const hash = s => crypto.createHash('sha256').update(s).digest('hex');
 
 module.exports = async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  if (!(process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL)) return res.status(503).json({ error: 'not set up' });
+  if (!env("KV_REST_API_URL", "UPSTASH_REDIS_REST_URL")) return res.status(503).json({ error: 'not set up' });
   const m = /^Bearer ([a-z2-7]{26})$/.exec(req.headers.authorization || '');
   if (!m) return res.status(401).json({ error: 'bad code' });
   if (req.method !== 'GET' && req.method !== 'PUT') return res.status(405).json({ error: 'method' });
@@ -39,6 +43,6 @@ module.exports = async (req, res) => {
     return res.status(200).json({ ok: true });
   } catch (e) {
     console.error(e.message);
-    return res.status(502).json({ error: 'storage' });
+    return res.status(502).json({ error: /^storage /.test(e.message) ? e.message : 'storage unreachable' });
   }
 };
