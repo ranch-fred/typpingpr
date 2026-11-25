@@ -143,7 +143,8 @@ main { max-width: 1080px; margin: 0 auto; padding: 1.6rem 16px 4rem; }
 .speed-row .speed-goal { margin-left: auto; font-size: .85rem; }
 .speed-card p.small { margin: .7rem 0 0; }
 .last-test { background: var(--blue-bg); border-radius: 10px; padding: .45rem .7rem; color: var(--blue-dk); }
-.last-test b { font-weight: 900; }
+.last-test b, .pace-today b { font-weight: 900; }
+.pace-today { background: var(--orange-bg); border-radius: 10px; padding: .45rem .7rem; color: #a34e00; }
 .tip-card p:last-child { margin: 0; }
 
 /* ---------- practice ---------- */

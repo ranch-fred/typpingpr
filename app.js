@@ -67,7 +67,7 @@
   const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
 
   // ---------- storage ----------
-  const blank = () => ({ v: 2, sessions: [], keys: {}, days: {}, plan: null, settings: { sound: false, guide: false } });
+  const blank = () => ({ v: 2, sessions: [], keys: {}, days: {}, plan: null, paceStart: null, settings: { sound: false, guide: false } });
   const valid = d => d && (d.v === 1 || d.v === 2) && Array.isArray(d.sessions) && isObj(d.keys) && isObj(d.days);
   function addToDay(days, s, addMs) {
     const k = C.dateKey(new Date(s.t));
@@ -119,7 +119,7 @@
   }
   function sync() {
     const code = syncCode();
-    if (!code) return Promise.resolve(false);
+    if (!code) return Promise.resolve(false); // only when browser storage is blocked
     if (syncing) { syncAgain = true; return syncing; }
     syncMsg = 'Saving online...'; renderSync();
     syncing = (async () => {
@@ -151,15 +151,18 @@
   }
   function renderSync() {
     const on = !!syncCode();
-    $('#syncStatus').textContent = on ? (syncMsg || 'Online saving is on.') + ' Keep your sync code private: it opens your progress on any browser.'
-      : 'Progress is saved in this browser only. Turn on online saving to keep a copy online and use it on any browser.';
-    $('#syncOn').hidden = on;
-    $('#syncForm').hidden = on;
-    ['#syncCopy', '#syncNow', '#syncOff'].forEach(s => { $(s).hidden = !on; });
+    $('#syncStatus').textContent = on ? (syncMsg || 'Online saving is on.') + ' Your progress saves by itself after every round. On another browser, paste your sync code there once. Keep the code private.'
+      : 'Browser storage is blocked, so progress cannot be saved.';
+    $('#syncCopy').hidden = !on;
+  }
+  // Online saving is always on: a browser without a code gets one.
+  function autoSync() {
+    if (!syncCode()) setCode(newCode());
+    return sync();
   }
   function setCode(code) {
-    try { code ? localStorage.setItem(SYNC, code) : localStorage.removeItem(SYNC); }
-    catch (e) { toast('Browser storage is blocked, so online saving cannot turn on.'); return false; }
+    try { localStorage.setItem(SYNC, code); }
+    catch (e) { toast('Browser storage is blocked, so online saving cannot work.'); return false; }
     syncMsg = '';
     renderSync();
     return true;
@@ -184,18 +187,25 @@
   }
   const streakNow = () => C.streak(qualified(), new Date());
 
+  // Pace car: day 1 is the first day this browser (or your online copy) used it.
+  function paceDay() {
+    if (!db.paceStart) { db.paceStart = todayKey(); save(); }
+    return C.paceDay(db.paceStart, todayKey());
+  }
+  const todayPace = () => C.paceFor(paceDay());
+
   // Today's session: position is (block, round), reset each day.
   function plan() {
     const k = todayKey();
-    if (!db.plan || db.plan.date !== k) db.plan = { date: k, block: 0, round: 0, base: baseline(), v: PLAN_V };
+    if (!db.plan || db.plan.date !== k) db.plan = { date: k, block: 0, round: 0, v: PLAN_V };
     if (db.plan.v !== PLAN_V) {
       // Saved during the old 60-minute plan: keep the blocks already done today.
-      Object.assign(db.plan, C.remapPosition(OLD_PLAN_IDS, C.dailyPlan(db.plan.base), db.plan.block, db.plan.round), { v: PLAN_V });
+      Object.assign(db.plan, C.remapPosition(OLD_PLAN_IDS, C.dailyPlan(todayPace()), db.plan.block, db.plan.round), { v: PLAN_V });
       save();
     }
     return db.plan;
   }
-  const blocks = () => C.dailyPlan(plan().base);
+  const blocks = () => C.dailyPlan(todayPace());
   const planSecs = () => C.planDoneSecs(blocks(), plan().block, plan().round);
   const goalMin = () => Math.round(C.planDoneSecs(blocks(), blocks().length, 0) / 60);
   const planDone = () => plan().block >= blocks().length;
@@ -372,6 +382,8 @@
     $('#speedLevel').textContent = !has ? 'Your first daily test sets your starting speed.'
       : b >= C.GOAL ? `Level ${lv.n}: ${lv.name}. You made it to 100!`
       : `Level ${lv.n}: ${lv.name}. ${Math.max(1, Math.ceil(lv.to - b))} wpm to the next level.`;
+    const pd = paceDay();
+    $('#paceToday').innerHTML = `Pace car <b>${todayPace()} wpm</b> · ${pd <= C.PACE_DAYS ? `day ${pd} of ${C.PACE_DAYS}` : 'full speed'}`;
     const lt = tests().slice(-1)[0];
     $('#lastTest').hidden = !lt;
     if (lt) {
@@ -386,7 +398,7 @@
   // Every key fills one position. Wrong keys turn red and must be deleted with Backspace.
   let run = null, raf = 0, resultAt = 0, hintTimer = 0;
   let flow = { results: [] };
-  const practice = { secs: '60', pool: 'all', pace: '1.05' };
+  const practice = { secs: '60', pool: 'all' };
   const START_HINT = 'Start typing. The timer begins on your first key. Mistakes turn red: press Backspace to fix them.';
 
   function poolWords(pool) {
@@ -638,12 +650,16 @@
     $('#timeFill').className = left < 0.12 ? 'crit' : left < 0.3 ? 'low' : '';
     $('#hTime').parentElement.className = 'hud-time' + (secsLeft <= 5 && total >= 15000 ? ' crit' : '');
     if (run.opts.pace) {
-      const idx = Math.min(run.spans.length - 1, Math.floor((run.opts.pace * 5 / 60000) * el));
+      let idx = Math.floor((run.opts.pace * 5 / 60000) * el);
+      if (!run.free) idx = Math.min(run.spans.length - 1, idx);
       if (idx !== run.paceIdx) {
-        if (run.paceIdx >= 0) run.spans[run.paceIdx].classList.remove('pace');
-        run.spans[idx].classList.add('pace');
+        // Free type has no text to drive on, so there the car is only the ahead/behind count.
+        if (!run.free) {
+          if (run.paceIdx >= 0) run.spans[run.paceIdx].classList.remove('pace');
+          run.spans[idx].classList.add('pace');
+        }
         run.paceIdx = idx;
-        const diff = run.pos - idx;
+        const diff = (run.free ? run.ans.length : run.pos) - idx;
         $('#hPace').textContent = (diff >= 0 ? '+' : '−') + Math.abs(diff);
         $('#hPaceLbl').textContent = diff >= 0 ? 'letters ahead' : 'letters behind';
         $('#hPaceBox').className = diff >= 0 ? 'ahead' : 'behind';
@@ -755,9 +771,9 @@
   }
   function startPractice() {
     flow = { results: [] };
-    const p = Number(practice.pace), secs = Number(practice.secs), free = practice.pool === 'free';
+    const secs = Number(practice.secs), free = practice.pool === 'free';
     startRun({ mode: 'practice', title: free ? 'Free type' : 'Free practice', label: 'Practice', secs, pool: practice.pool, free,
-      pace: p && !free ? Math.round(baseline() * p) : 0, test: practice.pool === 'all' && secs >= 60 });
+      pace: todayPace(), test: practice.pool === 'all' && secs >= 60 });
   }
   function next() {
     if (!run || run.opts.mode !== 'plan') startPractice();
@@ -987,17 +1003,11 @@
     rd.readAsText(f);
   });
   $('#resetBtn').addEventListener('click', () => {
-    if (!confirm('Delete ALL progress in this browser? This cannot be undone. Export a backup first if unsure.' + (syncCode() ? ' Online saving turns off here; your online copy stays, so copy your sync code first to get back to it.' : ''))) return;
-    setCode('');
-    db = blank(); save(); renderChrome(); renderProgress(); toast('Progress reset.');
+    if (!confirm('Delete ALL progress in this browser? This cannot be undone. Export a backup first if unsure.' + ' Your online copy stays under your current sync code, so copy that first to get back to it. This browser starts over with a new code.')) return;
+    setCode(newCode());
+    db = blank(); save(); renderChrome(); renderProgress(); sync(); toast('Progress reset.');
   });
 
-  $('#syncOn').addEventListener('click', async () => {
-    if (!setCode(newCode())) return;
-    const ok = await sync();
-    if (ok) toast('Online saving is on. Copy your sync code and keep it somewhere safe.');
-    else { const m = syncMsg; setCode(''); toast(m); }
-  });
   $('#syncForm').addEventListener('submit', async e => {
     e.preventDefault();
     const code = $('#syncInput').value.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -1011,12 +1021,8 @@
     try { await navigator.clipboard.writeText(syncCode()); toast('Sync code copied. Keep it private.'); }
     catch (e) { prompt('Copy your sync code and keep it private:', syncCode()); }
   });
-  $('#syncNow').addEventListener('click', sync);
-  $('#syncOff').addEventListener('click', () => {
-    if (confirm('Turn off online saving in this browser? Copy your sync code first: without it you cannot get back to your online copy.')) setCode('');
-  });
 
   show('home');
-  sync();
-  window.addEventListener('online', sync);
+  autoSync();
+  window.addEventListener('online', autoSync);
 })();

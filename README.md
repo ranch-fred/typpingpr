@@ -20,13 +20,13 @@ and open the link it gives you every day.
   moving past the word (Ctrl+Backspace deletes the whole word).
 - **Streaks**: finish the daily test (or type 15 minutes) each day to keep your streak. Finish the whole session for a gold "perfect day".
   Week view, best streak, milestones and celebrations.
-- **Pace car**: an orange marker moving at a target speed just above yours. Stay ahead of it.
+- **Pace car**: an orange marker in every round. 20 wpm on day 1, a bit faster each day, 100 wpm on day 30.
 - **Key guide** (optional): highlights the next key on screen, so you look at the screen and not your hands.
 - **Progress**: a chart of every round with rolling and overall averages, an estimated date for 100 WPM, a letter heatmap,
   a practice calendar and recent rounds.
-- **Free practice**: extra rounds from 15 seconds to 5 minutes with the word set and pace you choose.
+- **Free practice**: extra rounds from 15 seconds to 5 minutes with the word set you choose.
 
-Progress is stored in your browser (localStorage), and online if you turn on **Online saving** on the Progress page.
+Progress is stored in your browser (localStorage), and online automatically after every round (sync code on the Progress page).
 Online saving needs an Upstash Redis store connected to the Vercel project (Storage tab), then a redeploy. Use **Export backup** on the Progress page now and then.
 
 ## Develop

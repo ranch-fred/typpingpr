@@ -65,7 +65,11 @@ assert.strictEqual(C.planDoneSecs(plan, 0, 0), 0);
 assert.strictEqual(C.planDoneSecs(plan, 1, 0), 120);
 assert.strictEqual(C.planDoneSecs(plan, 2, 1), 180 + 90);
 assert.strictEqual(plan.filter(b => b.rounds.some(r => r.test)).length, 1);
-assert.strictEqual(plan.find(b => b.id === 'sprint').rounds[0].pace, 50);
+assert(plan.every(b => b.rounds.every(r => r.pace === 40)), 'every round has the pace car');
+assert.deepStrictEqual([0, 1, 2, 15, 30, 99].map(C.paceFor), [20, 20, 23, 59, 100, 100]);
+assert.strictEqual(C.paceDay('2026-11-25', '2026-11-25'), 1);
+assert.strictEqual(C.paceDay('2026-11-25', '2026-12-24'), 30);
+assert.strictEqual(C.paceDay('2026-11-25', '2026-11-20'), 1);
 assert.strictEqual(plan.find(b => b.id === 'free').rounds.length, 3);
 
 // Remap today's position from the old 60-minute layout.
@@ -99,6 +103,8 @@ assert.strictEqual(mg.days['2026-11-23'].ms, 60000);
 assert.deepStrictEqual([mg.keys.a.n, mg.keys.b.n, mg.keys.c.n], [10, 1, 7]);
 assert.strictEqual(mg.plan.block, 2);
 assert.strictEqual(mg.settings.sound, true);
+assert.strictEqual(C.mergeData(Object.assign({}, here, { paceStart: '2026-11-25' }), Object.assign({}, there, { paceStart: '2026-11-24' }), 100).paceStart, '2026-11-24');
+assert.strictEqual(C.mergeData(here, Object.assign({}, there, { paceStart: '2026-11-24' }), 100).paceStart, '2026-11-24');
 assert.deepStrictEqual(C.mergeData(mg, there, 100), mg);
 assert.strictEqual(C.mergeData(here, { sessions: [], days: {}, keys: {}, plan: null }, 100).sessions.length, 2);
 

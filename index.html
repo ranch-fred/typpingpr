@@ -79,6 +79,7 @@
             <div class="meter meter-sm"><div id="speedFill"></div><i id="speedBest" title="Personal best"></i></div>
             <p class="small muted" id="speedLevel"></p>
             <p class="small last-test" id="lastTest" hidden></p>
+            <p class="small pace-today" id="paceToday"></p>
           </div>
           <div class="card tip-card"><p class="kicker">Tip</p><p id="tip"></p></div>
         </aside>
@@ -98,11 +99,6 @@
         <fieldset><legend>Words</legend>
           <div class="seg" data-name="pool">
             <button data-v="easy">Common</button><button data-v="all" class="on">All words</button><button data-v="weak">My weak keys</button><button data-v="free">Free type</button>
-          </div>
-        </fieldset>
-        <fieldset><legend>Pace car</legend>
-          <div class="seg" data-name="pace">
-            <button data-v="0">Off</button><button data-v="1.05" class="on">+5%</button><button data-v="1.15">+15%</button><button data-v="1.3">+30%</button>
           </div>
         </fieldset>
         <button class="btn btn-primary btn-lg" id="startPractice">Go <kbd>Enter</kbd></button>
@@ -206,10 +202,7 @@
         <h3>Your data</h3>
         <p class="small" id="syncStatus" role="status"></p>
         <div class="actions left sync-row">
-          <button class="btn btn-primary" id="syncOn">Turn on online saving</button>
-          <button class="btn" id="syncCopy" hidden>Copy my sync code</button>
-          <button class="btn" id="syncNow" hidden>Save now</button>
-          <button class="btn" id="syncOff" hidden>Turn off here</button>
+          <button class="btn" id="syncCopy">Copy my sync code</button>
         </div>
         <form class="actions left sync-row" id="syncForm">
           <input class="sync-input" id="syncInput" type="password" autocomplete="off" aria-label="Sync code from another browser" placeholder="Have a sync code? Paste it here">
