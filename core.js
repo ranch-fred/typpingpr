@@ -149,8 +149,33 @@
     return s;
   }
 
+  // Combine two copies of the saved data (this browser + online) without losing rounds from either.
+  // shortcut: a letter's stats come from the copy with more presses, so typing on two devices
+  // between syncs keeps only the bigger letter totals. Revisit if several devices are used at once.
+  function mergeData(a, b, max) {
+    const seen = new Map();
+    for (const s of a.sessions.concat(b.sessions)) seen.set(s.t + '|' + s.title, s);
+    const sessions = [...seen.values()].sort((x, y) => x.t - y.t).slice(-max);
+    const ms = {};
+    for (const s of sessions) { const k = dateKey(new Date(s.t)); ms[k] = (ms[k] || 0) + s.secs * 1000; }
+    const days = {};
+    for (const k of new Set(Object.keys(a.days).concat(Object.keys(b.days)))) {
+      const x = a.days[k] || {}, y = b.days[k] || {}, more = (x.n || 0) >= (y.n || 0) ? x : y;
+      days[k] = { ms: Math.max(x.ms || 0, y.ms || 0, ms[k] || 0), best: Math.max(x.best || 0, y.best || 0),
+        accSum: more.accSum || 0, n: more.n || 0, perfect: !!(x.perfect || y.perfect), tested: !!(x.tested || y.tested) };
+    }
+    const keys = {};
+    for (const k of new Set(Object.keys(a.keys).concat(Object.keys(b.keys)))) {
+      const x = a.keys[k], y = b.keys[k];
+      keys[k] = !y || (x && x.n >= y.n) ? x : y;
+    }
+    const pos = p => p ? p.date + ' ' + String(p.block * 100 + p.round).padStart(6, '0') : '';
+    const plan = pos(a.plan) >= pos(b.plan) ? a.plan : b.plan;
+    return Object.assign({}, a, { sessions, days, keys, plan });
+  }
+
   const Core = { LETTERS, GOAL, wpm, accuracy, dateKey, dayNumber, streak, longestStreak, recordKey, keyTotals, weakKeys, genWords,
-    projectDays, level, dailyPlan, remapPosition, planDoneSecs };
+    projectDays, level, dailyPlan, remapPosition, planDoneSecs, mergeData };
   if (typeof module !== 'undefined' && module.exports) module.exports = Core;
   else root.Core = Core;
 })(this);

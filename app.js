@@ -100,6 +100,71 @@
     catch (e) { toast('Could not save progress: browser storage is blocked or full.'); }
   }
 
+  // ---------- online saving ----------
+  // A random secret code identifies your online copy. Every sync: download, merge, upload.
+  const SYNC = 'road100.sync', CODE = /^[a-z2-7]{26}$/;
+  const syncCode = () => { try { return localStorage.getItem(SYNC) || ''; } catch (e) { return ''; } };
+  let syncing = null, syncAgain = false, syncMsg = '';
+  function newCode() {
+    const abc = 'abcdefghijklmnopqrstuvwxyz234567';
+    return [...crypto.getRandomValues(new Uint8Array(26))].map(n => abc[n % 32]).join('');
+  }
+  async function callApi(method, code, body) {
+    const r = await fetch('/api/progress', { method, cache: 'no-store', signal: AbortSignal.timeout(15000),
+      headers: Object.assign({ Authorization: 'Bearer ' + code }, body ? { 'Content-Type': 'application/json' } : {}),
+      body: body ? JSON.stringify(body) : undefined });
+    if (!r.ok) throw new Error(r.status === 503 || r.status === 404 || r.status === 501 ? 'online storage is not set up yet'
+      : r.status === 429 ? 'too many saves, try again in an hour' : r.status === 413 ? 'too much data' : 'the server had a problem');
+    return r.json();
+  }
+  function sync() {
+    const code = syncCode();
+    if (!code) return Promise.resolve(false);
+    if (syncing) { syncAgain = true; return syncing; }
+    syncMsg = 'Saving online...'; renderSync();
+    syncing = (async () => {
+      try {
+        const { data } = await callApi('GET', code);
+        if (syncCode() !== code) return false; // turned off or changed meanwhile
+        if (data) {
+          if (!valid(data)) throw new Error('the online copy is damaged');
+          db = C.mergeData(db, migrate(data), MAX_SESSIONS);
+          save();
+          renderChrome();
+          if (view === 'home') renderHome();
+          if (view === 'progress') renderProgress();
+        }
+        await callApi('PUT', code, db);
+        syncMsg = 'Saved online at ' + new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) + '.';
+        return true;
+      } catch (e) {
+        const why = /^(online|too|the) /.test(e.message) ? e.message : 'no connection';
+        syncMsg = `Not saved online: ${why}. Your progress is still safe in this browser.`;
+        return false;
+      } finally {
+        syncing = null;
+        renderSync();
+        if (syncAgain) { syncAgain = false; sync(); }
+      }
+    })();
+    return syncing;
+  }
+  function renderSync() {
+    const on = !!syncCode();
+    $('#syncStatus').textContent = on ? (syncMsg || 'Online saving is on.') + ' Keep your sync code private: it opens your progress on any browser.'
+      : 'Progress is saved in this browser only. Turn on online saving to keep a copy online and use it on any browser.';
+    $('#syncOn').hidden = on;
+    $('#syncForm').hidden = on;
+    ['#syncCopy', '#syncNow', '#syncOff'].forEach(s => { $(s).hidden = !on; });
+  }
+  function setCode(code) {
+    try { code ? localStorage.setItem(SYNC, code) : localStorage.removeItem(SYNC); }
+    catch (e) { toast('Browser storage is blocked, so online saving cannot turn on.'); return false; }
+    syncMsg = '';
+    renderSync();
+    return true;
+  }
+
   // ---------- derived stats ----------
   const tests = () => db.sessions.filter(s => s.test);
   function baseline() {
@@ -611,6 +676,7 @@
       }
     }
     save();
+    sync();
     renderChrome();
 
     const party = [];
@@ -737,6 +803,7 @@
   // ---------- progress ----------
   let chart = null;
   function renderProgress() {
+    renderSync();
     const keys = Object.keys(db.days).sort();
     const all = db.sessions, recent = all.slice(-10);
     $('#pAvg').textContent = all.length ? Math.round(avg(all.map(s => s.wpm))) : '–';
@@ -914,15 +981,42 @@
       try { d = JSON.parse(rd.result); } catch (err) { toast('That file is not valid JSON.'); return; }
       if (!valid(d)) { toast('That file is not a Road to 100 backup.'); return; }
       if (!confirm(`Replace your current progress with this backup (${d.sessions.length} rounds)?`)) return;
-      db = migrate(d); save(); renderChrome(); renderProgress(); toast('Backup restored.');
+      db = migrate(d); save(); sync(); renderChrome(); renderProgress(); toast('Backup restored.');
     };
     rd.onerror = () => toast('Could not read that file.');
     rd.readAsText(f);
   });
   $('#resetBtn').addEventListener('click', () => {
-    if (!confirm('Delete ALL your progress? This cannot be undone. Export a backup first if unsure.')) return;
+    if (!confirm('Delete ALL progress in this browser? This cannot be undone. Export a backup first if unsure.' + (syncCode() ? ' Online saving turns off here; your online copy stays, so copy your sync code first to get back to it.' : ''))) return;
+    setCode('');
     db = blank(); save(); renderChrome(); renderProgress(); toast('Progress reset.');
   });
 
+  $('#syncOn').addEventListener('click', async () => {
+    if (!setCode(newCode())) return;
+    const ok = await sync();
+    if (ok) toast('Online saving is on. Copy your sync code and keep it somewhere safe.');
+    else { const m = syncMsg; setCode(''); toast(m); }
+  });
+  $('#syncForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const code = $('#syncInput').value.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!CODE.test(code)) { toast('That is not a sync code. It has 26 letters and numbers.'); return; }
+    if (!confirm('Combine the progress in this browser with the online progress for this code?')) return;
+    if (!setCode(code)) return;
+    $('#syncInput').value = '';
+    toast(await sync() ? 'Connected. Your progress is combined.' : syncMsg);
+  });
+  $('#syncCopy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(syncCode()); toast('Sync code copied. Keep it private.'); }
+    catch (e) { prompt('Copy your sync code and keep it private:', syncCode()); }
+  });
+  $('#syncNow').addEventListener('click', sync);
+  $('#syncOff').addEventListener('click', () => {
+    if (confirm('Turn off online saving in this browser? Copy your sync code first: without it you cannot get back to your online copy.')) setCode('');
+  });
+
   show('home');
+  sync();
+  window.addEventListener('online', sync);
 })();

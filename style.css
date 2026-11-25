@@ -420,6 +420,9 @@ body {
 .answer { display: inline-block; text-align: left; background: var(--bg); border: 2px solid var(--line); border-radius: 12px; padding: .6rem .8rem; margin-bottom: .4rem; color: var(--ink); font-family: var(--mono); font-size: .95rem; }
 .answer b { font-family: var(--sans); }
 
+.sync-row { margin-bottom: .8rem; }
+.sync-input { flex: 1; min-width: 220px; max-width: 340px; padding: .6rem .9rem; border: 2px solid var(--line-dk); border-radius: 14px; background: var(--card); }
+
 /* Particles */
 #fx { position: fixed; inset: 0; pointer-events: none; z-index: 70; overflow: hidden; }
 #fx i { position: absolute; width: 9px; height: 9px; border-radius: 2px; animation: fly .8s cubic-bezier(.15,.7,.3,1) forwards; }

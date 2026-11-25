@@ -26,7 +26,8 @@ and open the link it gives you every day.
   a practice calendar and recent rounds.
 - **Free practice**: extra rounds from 15 seconds to 5 minutes with the word set and pace you choose.
 
-Progress is stored in your browser (localStorage). Use **Export backup** on the Progress page now and then.
+Progress is stored in your browser (localStorage), and online if you turn on **Online saving** on the Progress page.
+Online saving needs an Upstash Redis store connected to the Vercel project (Storage tab), then a redeploy. Use **Export backup** on the Progress page now and then.
 
 ## Develop
 

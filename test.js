@@ -83,4 +83,54 @@ assert.strictEqual(C.longestStreak({}), 0);
 assert.strictEqual(C.longestStreak({ '2026-11-28': 1, '2026-11-29': 1, '2026-11-30': 1, '2026-12-01': 1, '2026-12-05': 1 }), 4);
 assert.strictEqual(C.longestStreak({ '2026-11-01': 1, '2026-11-02': 0, '2026-11-03': 1 }), 1);
 
-console.log('all tests passed');
+// Merge: nothing from either copy is lost, and merging twice changes nothing.
+const D = new Date(2026, 10, 24, 12).getTime(), DK = '2026-11-24';
+const ses = (t, title) => ({ t, title, secs: 60, wpm: 10, acc: 1 });
+const here = { v: 2, settings: { sound: true }, sessions: [ses(D, 'A'), ses(D + 1, 'B')], days: { [DK]: { ms: 120000, best: 5, n: 2, accSum: 2 } },
+  keys: { a: { n: 10 }, b: { n: 1 } }, plan: { date: DK, block: 1, round: 0, v: 2 } };
+const there = { v: 2, settings: { sound: false }, sessions: [ses(D, 'A'), ses(D + 2, 'C')], days: { [DK]: { ms: 120000, best: 9, n: 2, accSum: 2, tested: true }, '2026-11-23': { ms: 60000, n: 1 } },
+  keys: { a: { n: 4 }, c: { n: 7 } }, plan: { date: DK, block: 2, round: 1, v: 2 } };
+const mg = C.mergeData(here, there, 100);
+assert.deepStrictEqual(mg.sessions.map(s => s.title), ['A', 'B', 'C']);
+assert.strictEqual(mg.days[DK].ms, 180000);
+assert.strictEqual(mg.days[DK].best, 9);
+assert.strictEqual(mg.days[DK].tested, true);
+assert.strictEqual(mg.days['2026-11-23'].ms, 60000);
+assert.deepStrictEqual([mg.keys.a.n, mg.keys.b.n, mg.keys.c.n], [10, 1, 7]);
+assert.strictEqual(mg.plan.block, 2);
+assert.strictEqual(mg.settings.sound, true);
+assert.deepStrictEqual(C.mergeData(mg, there, 100), mg);
+assert.strictEqual(C.mergeData(here, { sessions: [], days: {}, keys: {}, plan: null }, 100).sessions.length, 2);
+
+// Save function, with a fake Redis.
+(async () => {
+  const api = require('./api/progress.js'), store = new Map();
+  global.fetch = async (url, o) => {
+    const [c, k, v] = JSON.parse(o.body);
+    let result = 1;
+    if (c === 'INCR') { result = (store.get(k) || 0) + 1; store.set(k, result); }
+    if (c === 'GET') result = store.has(k) ? store.get(k) : null;
+    if (c === 'SET') store.set(k, v);
+    return { ok: true, json: async () => ({ result }) };
+  };
+  const call = async (method, code, body) => {
+    const r = { setHeader() {}, status(s) { this.code = s; return this; }, json(j) { this.body = j; return this; } };
+    await api({ method, body, headers: { authorization: 'Bearer ' + code } }, r);
+    return r;
+  };
+  const code = 'abcdefghijklmnopqrstuvwxyz', other = code.replace('a', '2');
+  assert.strictEqual((await call('GET', code)).code, 503);
+  process.env.KV_REST_API_URL = 'http://fake'; process.env.KV_REST_API_TOKEN = 'x';
+  assert.strictEqual((await call('GET', 'short')).code, 401);
+  assert.strictEqual((await call('DELETE', code)).code, 405);
+  assert.strictEqual((await call('GET', code)).body.data, null);
+  assert.strictEqual((await call('PUT', code, { v: 2 })).code, 400);
+  assert.strictEqual((await call('PUT', code, { v: 2, sessions: ['x'.repeat(1e6)], days: {}, keys: {} })).code, 413);
+  assert.strictEqual((await call('PUT', code, mg)).code, 200);
+  assert.deepStrictEqual((await call('GET', code)).body.data, JSON.parse(JSON.stringify(mg)));
+  assert.strictEqual((await call('GET', other)).body.data, null);
+  assert(![...store.keys()].some(k => k.includes(code)), 'code must not be stored');
+  for (let i = 0; i < 300; i++) await call('GET', code);
+  assert.strictEqual((await call('GET', code)).code, 429);
+  console.log('all tests passed');
+})().catch(e => { console.error(e); process.exit(1); });
