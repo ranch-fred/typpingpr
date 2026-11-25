@@ -50,6 +50,12 @@ const withZ = out.filter(w => w.includes('z')).length;
 assert(withZ > 150, 'focus letter too rare: ' + withZ);
 assert.deepStrictEqual(C.genWords(['solo'], 3), ['solo', 'solo', 'solo']);
 
+// Line of best fit.
+assert.strictEqual(C.fitLine([{ x: 0, y: 5 }]), null);
+const fl = C.fitLine([{ x: 0, y: 10 }, { x: 1, y: 14 }, { x: 2, y: 12 }]);
+assert.strictEqual(fl.slope, 1);
+assert.deepStrictEqual([fl.at(0), fl.at(2)], [11, 13]);
+
 // Projection.
 assert.strictEqual(C.projectDays([{ x: 0, y: 10 }, { x: 1, y: 11 }], 100), null);
 assert.strictEqual(C.projectDays([{ x: 0, y: 10 }, { x: 1, y: 11 }, { x: 2, y: 12 }], 100), 88);

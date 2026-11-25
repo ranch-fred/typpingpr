@@ -22,7 +22,7 @@ and open the link it gives you every day.
   Week view, best streak, milestones and celebrations.
 - **Pace car**: an orange marker in every round. 20 wpm on day 1, a bit faster each day, 100 wpm on day 30.
 - **Key guide** (optional): highlights the next key on screen, so you look at the screen and not your hands.
-- **Progress**: a chart of every round with rolling and overall averages, an estimated date for 100 WPM, a letter heatmap,
+- **Progress**: a chart of every round with a line of best fit and averages, an estimated date for 100 WPM, a letter heatmap,
   a practice calendar and recent rounds.
 - **Free practice**: extra rounds from 15 seconds to 5 minutes with the word set you choose.
 

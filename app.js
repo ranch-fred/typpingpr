@@ -169,13 +169,12 @@
   }
 
   // ---------- derived stats ----------
-  const tests = () => db.sessions.filter(s => s.test);
+  // Current speed: the average of your last 10 runs of any kind.
   function baseline() {
-    const t = tests().slice(-5);
-    const src = t.length ? t : db.sessions.slice(-5);
+    const src = db.sessions.slice(-10);
     return src.length ? avg(src.map(s => s.wpm)) : 10;
   }
-  const bestTest = () => Object.values(db.days).reduce((m, d) => Math.max(m, d.best || 0), 0);
+  const bestRun = () => db.sessions.reduce((m, s) => Math.max(m, s.wpm), 0);
   const todayMs = () => (db.days[todayKey()] && db.days[todayKey()].ms) || 0;
   // A day keeps the streak if you finished a daily test, or typed 15+ minutes of anything.
   const dayLit = d => !!d && (d.tested || d.best > 0 || d.ms >= STREAK_MS);
@@ -374,22 +373,22 @@
     const next = MILESTONES.find(m => m > st);
     $('#streakNext').textContent = next ? `Next milestone: ${next} days` : '';
 
-    const has = db.sessions.length > 0, b = baseline(), lv = C.level(b), bst = bestTest();
+    const has = db.sessions.length > 0, b = baseline(), lv = C.level(b), bst = bestRun();
     $('#speedNow').textContent = has ? Math.round(b) : '–';
     requestAnimationFrame(() => { $('#speedFill').style.width = (has ? Math.min(100, b) : 0) + '%'; });
     $('#speedBest').style.left = `calc(${Math.min(100, bst)}% - 2px)`;
     $('#speedBest').hidden = !bst;
-    $('#speedLevel').textContent = !has ? 'Your first daily test sets your starting speed.'
+    $('#speedLevel').textContent = !has ? 'Your first run sets your starting speed.'
       : b >= C.GOAL ? `Level ${lv.n}: ${lv.name}. You made it to 100!`
       : `Level ${lv.n}: ${lv.name}. ${Math.max(1, Math.ceil(lv.to - b))} wpm to the next level.`;
     const pd = paceDay();
     $('#paceToday').innerHTML = `Pace car <b>${todayPace()} wpm</b> · ${pd <= C.PACE_DAYS ? `day ${pd} of ${C.PACE_DAYS}` : 'full speed'}`;
-    const lt = tests().slice(-1)[0];
+    const lt = db.sessions[db.sessions.length - 1];
     $('#lastTest').hidden = !lt;
     if (lt) {
       const ago = C.dayNumber(todayKey()) - C.dayNumber(C.dateKey(new Date(lt.t)));
       const when = ago === 0 ? 'today' : ago === 1 ? 'yesterday' : new Date(lt.t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      $('#lastTest').innerHTML = `Last test <b>${Math.round(lt.wpm)} wpm</b> · <b>${Math.round(lt.acc * 100)}%</b> · ${when}`;
+      $('#lastTest').innerHTML = `Last run <b>${Math.round(lt.wpm)} wpm</b> · <b>${Math.round(lt.acc * 100)}%</b> · ${esc(lt.title)}, ${when}`;
     }
     $('#tip').textContent = TIPS[Math.floor(Math.random() * TIPS.length)];
   }
@@ -677,7 +676,7 @@
       acc: Math.round(C.accuracy(run.keys - run.wrong, run.keys) * 1000) / 1000,
       combo: run.maxCombo };
     const counted = run.keys >= 5;
-    const wasLit = todayLit(), prevBest = bestTest();
+    const wasLit = todayLit(), prevBest = bestRun();
     let blockDone = false, dayDone = false;
     if (counted) {
       db.sessions.push(r);
@@ -698,7 +697,7 @@
     const party = [];
     if (counted && !wasLit && todayLit()) party.push('streak');
     if (dayDone) party.push('perfect');
-    const pb = counted && r.test && r.wpm > prevBest;
+    const pb = counted && r.wpm > prevBest;
 
     // Every round ends on the result screen; you confirm before the next one starts.
     showResult(r, counted, pb, prevBest, blockDone, dayDone);
@@ -737,7 +736,7 @@
       notes.push(`<span class="answer"><b>${esc(run.question)}?</b><br>"${esc(run.ans.trim())}"</span>`);
       notes.push(`${words} word${words > 1 ? 's' : ''}. You deleted ${run.wrong} letter${run.wrong === 1 ? '' : 's'}: accuracy counts every letter you had to take back.`);
     }
-    if (pb) notes.push(prevBest ? `<b>New personal best!</b> ${last.wpm.toFixed(1)} wpm, up ${(last.wpm - prevBest).toFixed(1)} on your old record.` : '<b>First test recorded.</b> This is your starting line.');
+    if (pb) notes.push(prevBest ? `<b>New personal best!</b> ${last.wpm.toFixed(1)} wpm, up ${(last.wpm - prevBest).toFixed(1)} on your old record.` : '<b>First run recorded.</b> This is your starting line.');
     if (last && last.pace) notes.push(w >= last.pace ? `You beat the pace car (${last.pace} wpm).` : `The pace car was ${last.pace} wpm. ${Math.ceil(last.pace - w)} to go.`);
     if (o.goalAcc) notes.push(a >= o.goalAcc ? 'Precision target hit. That is how speed gets built.' : `Accuracy was under ${Math.round(o.goalAcc * 100)}%. Slow down until it is clean.`);
     else if (rs.length && a < 0.92) notes.push('Accuracy under 92%. Slow down a little: every fix costs more time than a careful keystroke.');
@@ -841,18 +840,22 @@
     }
 
     $('#chartEmpty').hidden = all.length > 0;
+    $('#trend').textContent = '';
     if (chart) { chart.destroy(); chart = null; }
     if (window.Chart && all.length) {
       const vals = all.map(s => s.wpm);
       const rolling = vals.map((_, i) => Math.round(avg(vals.slice(Math.max(0, i - 9), i + 1)) * 10) / 10);
       const overall = Math.round(avg(vals) * 10) / 10;
+      const fit = C.fitLine(vals.map((y, x) => ({ x, y })));
+      $('#trend').textContent = fit ? `Line of best fit: ${fit.slope >= 0 ? '+' : '−'}${Math.abs(fit.slope * 10).toFixed(1)} wpm every 10 runs.` : '';
       // Scale to the speeds so far; the goal line appears once it fits.
       const top = Math.ceil(Math.max(...vals, 8) * 1.25 / 10) * 10;
       chart = new window.Chart($('#chart').getContext('2d'), {
         type: 'line',
         data: { labels: all.map(s => new Date(s.t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })), datasets: [
-          { label: 'Each round', data: vals, borderColor: 'rgba(59,91,219,.35)', backgroundColor: '#3b5bdb', borderWidth: 1.5, pointRadius: vals.length > 150 ? 1.5 : 4, pointBackgroundColor: '#3b5bdb', pointBorderWidth: 0 },
-          { label: 'Average of last 10 rounds', data: rolling, borderColor: '#ff8a00', borderWidth: 3, pointRadius: 0, tension: 0.3 },
+          { label: 'Each run', data: vals, borderColor: 'rgba(59,91,219,.35)', backgroundColor: '#3b5bdb', borderWidth: 1.5, pointRadius: vals.length > 150 ? 1.5 : 4, pointBackgroundColor: '#3b5bdb', pointBorderWidth: 0 },
+          { label: 'Average of last 10 runs', data: rolling, borderColor: '#ff8a00', borderWidth: 1.5, pointRadius: 0, tension: 0.3 },
+          ...(fit ? [{ label: 'Line of best fit', data: vals.map((_, i) => Math.round(fit.at(i) * 10) / 10), borderColor: '#e03131', borderWidth: 3, pointRadius: 0 }] : []),
           { label: 'Overall average', data: vals.map(() => overall), borderColor: '#2f9e44', borderDash: [6, 4], borderWidth: 2, pointRadius: 0 },
           ...(top >= C.GOAL ? [{ label: 'Goal', data: vals.map(() => C.GOAL), borderColor: '#b9b2a5', borderWidth: 1.5, pointRadius: 0, borderDash: [2, 4] }] : []),
         ] },
@@ -865,7 +868,7 @@
           },
           plugins: {
             tooltip: { callbacks: {
-              title: it => { const s = all[it[0].dataIndex]; return `${s.title}${s.test ? ' (test)' : ''}, ${it[0].label}`; },
+              title: it => { const s = all[it[0].dataIndex]; return `${s.title}, ${it[0].label}`; },
               afterBody: it => `Accuracy: ${Math.round(all[it[0].dataIndex].acc * 100)}%`,
             } },
             legend: { labels: { color: '#2d2a26', boxWidth: 12, font: { family: 'Nunito', weight: '700' } } } },
@@ -905,7 +908,7 @@
 
     const rows = db.sessions.slice(-15).reverse().map(s => {
       const when = new Date(s.t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-      return `<tr><td>${when}</td><td>${esc(s.title)}${s.test ? ' (test)' : ''}</td><td class="num">${Math.round(s.wpm)}</td><td class="num">${Math.round(s.acc * 100)}%</td><td class="num">${s.secs}s</td></tr>`;
+      return `<tr><td>${when}</td><td>${esc(s.title)}</td><td class="num">${Math.round(s.wpm)}</td><td class="num">${Math.round(s.acc * 100)}%</td><td class="num">${s.secs}s</td></tr>`;
     });
     $('#runs tbody').innerHTML = rows.join('') || '<tr><td colspan="5" class="muted">No rounds yet.</td></tr>';
   }

@@ -74,19 +74,24 @@
     return out;
   }
 
-  // Days until `target` WPM at the current linear trend; null if not enough data or not improving.
-  function projectDays(points, target) {
-    if (points.length < 3) return null;
+  // Straight line of best fit (least squares) through {x, y} points; null if it is not defined.
+  function fitLine(points) {
     const n = points.length;
+    if (n < 2) return null;
     const mx = points.reduce((a, p) => a + p.x, 0) / n;
     const my = points.reduce((a, p) => a + p.y, 0) / n;
     let sxy = 0, sxx = 0;
     for (const p of points) { sxy += (p.x - mx) * (p.y - my); sxx += (p.x - mx) ** 2; }
     if (sxx === 0) return null;
     const slope = sxy / sxx;
-    if (!(slope > 0.01)) return null;
-    const lastX = points[n - 1].x;
-    const fitted = my + slope * (lastX - mx);
+    return { slope, at: x => my + slope * (x - mx) };
+  }
+
+  // Days until `target` WPM at the current linear trend; null if not enough data or not improving.
+  function projectDays(points, target) {
+    const fit = points.length < 3 ? null : fitLine(points);
+    if (!fit || !(fit.slope > 0.01)) return null;
+    const slope = fit.slope, fitted = fit.at(points[points.length - 1].x);
     return fitted >= target ? 0 : Math.ceil((target - fitted) / slope);
   }
 
@@ -178,7 +183,7 @@
     return Object.assign({}, a, { sessions, days, keys, plan, paceStart });
   }
 
-  const Core = { LETTERS, GOAL, wpm, accuracy, dateKey, dayNumber, streak, longestStreak, recordKey, keyTotals, weakKeys, genWords,
+  const Core = { LETTERS, GOAL, wpm, accuracy, dateKey, dayNumber, streak, longestStreak, recordKey, keyTotals, weakKeys, genWords, fitLine,
     projectDays, level, dailyPlan, remapPosition, planDoneSecs, mergeData, PACE_DAYS, paceDay, paceFor };
   if (typeof module !== 'undefined' && module.exports) module.exports = Core;
   else root.Core = Core;
