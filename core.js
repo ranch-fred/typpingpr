@@ -23,10 +23,23 @@
     return n;
   }
 
-  // Per-letter stats as moving averages, so recent typing matters most.
+  function rawTotals(s) {
+    return s.miss != null ? { miss: s.miss, msSum: s.msSum, msN: s.msN }
+      : { miss: s.err * s.n, msSum: s.ms * s.n, msN: s.ms > 0 ? s.n : 0 };
+  }
+  // All-time numbers for one letter, across every day.
+  function keyTotals(s) {
+    const t = rawTotals(s);
+    return { n: s.n, err: s.n ? t.miss / s.n : 0, ms: t.msN ? t.msSum / t.msN : 0 };
+  }
+
+  // Per-letter stats: moving averages (recent typing, picks weak keys) plus lifetime totals (heatmap).
   function recordKey(stats, ch, miss, ms) {
     const s = stats[ch] || (stats[ch] = { err: 0, ms: 0, n: 0 });
+    Object.assign(s, rawTotals(s)); // lifetime totals, seeded from the averages for older data
     s.n++;
+    if (miss) s.miss++;
+    if (ms != null && ms > 0) { s.msSum += ms; s.msN++; }
     const a = Math.max(0.05, 1 / s.n);
     s.err += a * ((miss ? 1 : 0) - s.err);
     if (ms != null && ms > 0) s.ms = s.ms ? s.ms + 0.1 * (ms - s.ms) : ms;
@@ -136,7 +149,7 @@
     return s;
   }
 
-  const Core = { LETTERS, GOAL, wpm, accuracy, dateKey, dayNumber, streak, longestStreak, recordKey, weakKeys, genWords,
+  const Core = { LETTERS, GOAL, wpm, accuracy, dateKey, dayNumber, streak, longestStreak, recordKey, keyTotals, weakKeys, genWords,
     projectDays, level, dailyPlan, remapPosition, planDoneSecs };
   if (typeof module !== 'undefined' && module.exports) module.exports = Core;
   else root.Core = Core;

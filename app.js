@@ -4,7 +4,7 @@
   const EASY = WORDS.slice(0, 200);
   const STORE = 'road100.v1'; // same key as before, so existing progress carries over
   const STREAK_MS = 15 * 60000; // minutes of typing that keep the streak alive
-  const MAX_SESSIONS = 1500; // older rounds live on as daily summaries in db.days
+  const MAX_SESSIONS = 5000; // older rounds live on as daily summaries in db.days
   const MILESTONES = [3, 7, 14, 30, 50, 100, 200, 365];
   const ROWS = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
   const TIPS = [
@@ -242,7 +242,11 @@
   // ---------- views ----------
   let view = 'home';
   function show(id) {
-    if (id !== 'type' && run && !run.ended) { cancelAnimationFrame(raf); run = null; }
+    if (id !== 'type' && run && !run.ended) {
+      cancelAnimationFrame(raf);
+      if (run.start) save(); // keep the letter stats of an unfinished round
+      run = null;
+    }
     document.querySelectorAll('.view').forEach(v => { v.hidden = v.id !== id; });
     document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.go === id));
     view = id;
@@ -734,13 +738,18 @@
   let chart = null;
   function renderProgress() {
     const keys = Object.keys(db.days).sort();
-    const testDays = keys.filter(k => db.days[k].best > 0);
-    $('#pCur').textContent = tests().length ? Math.round(baseline()) : '–';
-    $('#pBest').textContent = bestTest() ? Math.round(bestTest()) : '–';
+    const all = db.sessions, recent = all.slice(-10);
+    $('#pAvg').textContent = all.length ? Math.round(avg(all.map(s => s.wpm))) : '–';
+    $('#pAvgSub').textContent = all.length ? `wpm, all ${all.length} rounds · last ${recent.length}: ${Math.round(avg(recent.map(s => s.wpm)))}` : 'all rounds';
+    $('#pAcc').textContent = all.length ? Math.round(avg(all.map(s => s.acc)) * 100) + '%' : '–';
+    $('#pAccSub').textContent = all.length ? `all ${all.length} rounds · last ${recent.length}: ${Math.round(avg(recent.map(s => s.acc)) * 100)}%` : 'all rounds';
+    const byDay = {};
+    for (const s of all) { const k = C.dateKey(new Date(s.t)); (byDay[k] = byDay[k] || []).push(s.wpm); }
+    const roundDays = Object.keys(byDay).sort();
     $('#pTime').textContent = (keys.reduce((a, k) => a + (db.days[k].ms || 0), 0) / 3600000).toFixed(1);
 
-    const eta = C.projectDays(testDays.slice(-30).map(k => ({ x: C.dayNumber(k), y: db.days[k].best })), C.GOAL);
-    if (eta === null) { $('#pEta').textContent = '–'; $('#pEtaSub').textContent = testDays.length < 3 ? 'needs 3+ test days' : 'trend not rising yet, keep going'; }
+    const eta = C.projectDays(roundDays.slice(-30).map(k => ({ x: C.dayNumber(k), y: avg(byDay[k]) })), C.GOAL);
+    if (eta === null) { $('#pEta').textContent = '–'; $('#pEtaSub').textContent = roundDays.length < 3 ? 'needs 3+ days' : 'trend not rising yet, keep going'; }
     else if (eta === 0) { $('#pEta').textContent = 'Done!'; $('#pEtaSub').textContent = 'goal reached'; }
     else {
       const when = new Date(); when.setDate(when.getDate() + eta);
@@ -748,38 +757,49 @@
       $('#pEtaSub').textContent = `about ${eta} days at your current trend`;
     }
 
-    $('#chartEmpty').hidden = testDays.length > 0;
+    $('#chartEmpty').hidden = all.length > 0;
     if (chart) { chart.destroy(); chart = null; }
-    if (window.Chart && testDays.length) {
-      const vals = testDays.map(k => db.days[k].best);
-      const avg7 = vals.map((_, i) => Math.round(avg(vals.slice(Math.max(0, i - 6), i + 1)) * 10) / 10);
+    if (window.Chart && all.length) {
+      const vals = all.map(s => s.wpm);
+      const rolling = vals.map((_, i) => Math.round(avg(vals.slice(Math.max(0, i - 9), i + 1)) * 10) / 10);
+      const overall = Math.round(avg(vals) * 10) / 10;
+      // Scale to the speeds so far; the goal line appears once it fits.
+      const top = Math.ceil(Math.max(...vals, 8) * 1.25 / 10) * 10;
       chart = new window.Chart($('#chart').getContext('2d'), {
         type: 'line',
-        data: { labels: testDays.map(k => k.slice(5)), datasets: [
-          { label: 'Daily test', data: vals, borderColor: '#3b5bdb', backgroundColor: 'rgba(59,91,219,.08)', fill: true, tension: 0.3, borderWidth: 3, pointRadius: 4, pointBackgroundColor: '#fff', pointBorderWidth: 2.5 },
-          { label: '7-day average', data: avg7, borderColor: '#ff8a00', borderDash: [6, 4], borderWidth: 2.5, pointRadius: 0, tension: 0.3 },
-          { label: 'Goal', data: vals.map(() => C.GOAL), borderColor: '#b9b2a5', borderWidth: 1.5, pointRadius: 0, borderDash: [2, 4] },
+        data: { labels: all.map(s => new Date(s.t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })), datasets: [
+          { label: 'Each round', data: vals, borderColor: 'rgba(59,91,219,.35)', backgroundColor: '#3b5bdb', borderWidth: 1.5, pointRadius: vals.length > 150 ? 1.5 : 4, pointBackgroundColor: '#3b5bdb', pointBorderWidth: 0 },
+          { label: 'Average of last 10 rounds', data: rolling, borderColor: '#ff8a00', borderWidth: 3, pointRadius: 0, tension: 0.3 },
+          { label: 'Overall average', data: vals.map(() => overall), borderColor: '#2f9e44', borderDash: [6, 4], borderWidth: 2, pointRadius: 0 },
+          ...(top >= C.GOAL ? [{ label: 'Goal', data: vals.map(() => C.GOAL), borderColor: '#b9b2a5', borderWidth: 1.5, pointRadius: 0, borderDash: [2, 4] }] : []),
         ] },
         options: {
           maintainAspectRatio: false, animation: reducedMotion ? false : { duration: 700 },
           interaction: { mode: 'index', intersect: false },
           scales: {
-            y: { min: 0, suggestedMax: 110, grid: { color: '#efebe3' }, ticks: { color: '#857f75' } },
+            y: { min: 0, max: top, grid: { color: '#efebe3' }, ticks: { color: '#857f75' } },
             x: { grid: { display: false }, ticks: { color: '#857f75', maxRotation: 0, autoSkip: true } },
           },
-          plugins: { legend: { labels: { color: '#2d2a26', boxWidth: 12, font: { family: 'Nunito', weight: '700' } } } },
+          plugins: {
+            tooltip: { callbacks: {
+              title: it => { const s = all[it[0].dataIndex]; return `${s.title}${s.test ? ' (test)' : ''}, ${it[0].label}`; },
+              afterBody: it => `Accuracy: ${Math.round(all[it[0].dataIndex].acc * 100)}%`,
+            } },
+            legend: { labels: { color: '#2d2a26', boxWidth: 12, font: { family: 'Nunito', weight: '700' } } } },
         },
       });
-    } else if (!window.Chart && testDays.length) {
+    } else if (!window.Chart && all.length) {
       $('#chartEmpty').hidden = false;
       $('#chartEmpty').textContent = 'The chart library did not load (offline?). Your data is safe.';
     }
 
     const heat = buildKb($('#heatKb'));
-    const known = C.LETTERS.split('').filter(k => db.keys[k] && db.keys[k].n >= 5 && db.keys[k].ms > 0);
-    const avgMs = known.length ? avg(known.map(k => db.keys[k].ms)) : 0;
+    const totals = {};
+    for (const k in db.keys) totals[k] = C.keyTotals(db.keys[k]);
+    const known = C.LETTERS.split('').filter(k => totals[k] && totals[k].n >= 5 && totals[k].ms > 0);
+    const avgMs = known.length ? avg(known.map(k => totals[k].ms)) : 0;
     for (const ch of C.LETTERS) {
-      const el = heat[ch], s = db.keys[ch];
+      const el = heat[ch], s = totals[ch];
       if (!s || s.n < 5 || !s.ms) { el.classList.add('none'); el.title = `${ch}: not enough data yet`; continue; }
       const bad = Math.min(1, s.err / 0.15) * 0.6 + Math.min(1, Math.max(0, s.ms / avgMs - 0.8) / 0.8) * 0.4;
       el.style.background = `hsl(${Math.round(130 * (1 - bad))} 65% 78%)`;
@@ -834,6 +854,19 @@
     }
     if (e.key === 'Escape' && view === 'result') show('home');
   });
+
+  // Closing or leaving the tab mid-round: keep the letter stats typed so far.
+  window.addEventListener('pagehide', () => { if (run && run.start && !run.ended) save(); });
+  // Another tab of the app saved: pick up its data so this tab does not overwrite it with older progress.
+  window.addEventListener('storage', e => {
+    if (e.key !== STORE || (run && run.start && !run.ended)) return;
+    db = load();
+    renderChrome();
+    if (view === 'home') renderHome();
+    if (view === 'progress') renderProgress();
+  });
+  // Ask the browser not to clear this site's data when disk space runs low.
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
   // Font size follows window width, so re-measure lines if the window is resized mid-round.
   window.addEventListener('resize', () => {

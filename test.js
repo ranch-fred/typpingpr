@@ -30,6 +30,17 @@ for (const ch of C.LETTERS.replace(/[a-jq]/g, '')) for (let i = 0; i < 10; i++) 
 assert.strictEqual(C.weakKeys(stats, 1)[0], 'q');
 assert.deepStrictEqual(C.weakKeys({}, 3), []);
 
+// Lifetime letter totals: every press counts equally, and older data without totals is kept.
+const life = {};
+for (let i = 0; i < 100; i++) C.recordKey(life, 'a', i < 50, i < 50 ? null : 200);
+assert.strictEqual(C.keyTotals(life.a).err, 0.5);
+assert.strictEqual(C.keyTotals(life.a).ms, 200);
+const oldKey = { e: { err: 0.1, ms: 300, n: 100 } };
+assert.deepStrictEqual(C.keyTotals(oldKey.e), { n: 100, err: 0.1, ms: 300 });
+C.recordKey(oldKey, 'e', true, null);
+assert.strictEqual(C.keyTotals(oldKey.e).n, 101);
+assert(Math.abs(C.keyTotals(oldKey.e).err - 11 / 101) < 1e-9);
+
 // genWords: right count, no immediate repeats, focus letters dominate.
 let seed = 1; const rng = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 const out = C.genWords(WORDS, 300, ['z'], rng);

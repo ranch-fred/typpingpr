@@ -169,22 +169,23 @@
     <section id="progress" class="view" hidden>
       <h2>Your progress</h2>
       <div class="grid4">
-        <div class="card stat"><span>Current speed</span><b id="pCur">–</b><em>avg of last 5 tests</em></div>
-        <div class="card stat"><span>Best test</span><b id="pBest">–</b><em>wpm</em></div>
+        <div class="card stat"><span>Average speed</span><b id="pAvg">–</b><em id="pAvgSub">all rounds</em></div>
+        <div class="card stat"><span>Average accuracy</span><b id="pAcc">–</b><em id="pAccSub">all rounds</em></div>
         <div class="card stat"><span>Total practice</span><b id="pTime">0</b><em>hours</em></div>
-        <div class="card stat"><span>100 WPM by</span><b id="pEta">–</b><em id="pEtaSub">needs 3+ test days</em></div>
+        <div class="card stat"><span>100 WPM by</span><b id="pEta">–</b><em id="pEtaSub">needs 3+ days</em></div>
       </div>
 
       <div class="card">
-        <h3>Daily test speed</h3>
-        <div class="chart-wrap"><canvas id="chart" aria-label="Line chart of daily test speed"></canvas></div>
-        <p class="muted" id="chartEmpty">Finish a daily test to see your first point.</p>
+        <h3>Speed, every round</h3>
+        <p class="muted small">Every drill, test, free type and practice round, oldest to newest. Hover a point for details.</p>
+        <div class="chart-wrap"><canvas id="chart" aria-label="Line chart of the speed of every round, with averages"></canvas></div>
+        <p class="muted" id="chartEmpty">Finish a round to see your first point.</p>
       </div>
 
       <div class="grid2">
         <div class="card">
           <h3>Letter heatmap</h3>
-          <p class="muted small">Green keys are clean and quick. Red keys get missed or make you hesitate. Hover a key for numbers.</p>
+          <p class="muted small">All your typing from every day added up. Green keys are clean and quick. Red keys get missed or make you hesitate. Hover a key for numbers.</p>
           <div class="kb heat" id="heatKb"></div>
           <p class="small">Letters to focus on: <b id="weakList">–</b></p>
         </div>
