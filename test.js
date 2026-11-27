@@ -130,28 +130,36 @@ assert.strictEqual(C.mergeData(here, { sessions: [], days: {}, keys: {}, plan: n
     if (c === 'INCR') { result = (store.get(k) || 0) + 1; store.set(k, result); }
     if (c === 'GET') result = store.has(k) ? store.get(k) : null;
     if (c === 'SET') store.set(k, v);
+    if (c === 'SCAN') result = ['0', [...store.keys()].filter(x => x.startsWith('progress:'))];
     return { ok: true, json: async () => ({ result }) };
   };
-  const call = async (method, code, body) => {
+  const call = async (method, body) => {
     const r = { setHeader() {}, status(s) { this.code = s; return this; }, json(j) { this.body = j; return this; } };
-    await api({ method, body, headers: { authorization: 'Bearer ' + code } }, r);
+    await api({ method, body, headers: {} }, r);
     return r;
   };
-  const code = 'abcdefghijklmnopqrstuvwxyz', other = code.replace('a', '2');
-  assert.strictEqual((await call('GET', code)).code, 503);
+  assert.strictEqual((await call('GET')).code, 503);
   process.env.KV_REST_API_URL = ' "https://flamingos.test" '; process.env.KV_REST_API_TOKEN = '"sessions" ';
-  await call('GET', code);
-  assert.deepStrictEqual(seen, { url: 'https://flamingos.test', auth: 'Bearer sessions' });
-  assert.strictEqual((await call('GET', 'short')).code, 401);
-  assert.strictEqual((await call('DELETE', code)).code, 405);
-  assert.strictEqual((await call('GET', code)).body.data, null);
-  assert.strictEqual((await call('PUT', code, { v: 2 })).code, 400);
-  assert.strictEqual((await call('PUT', code, { v: 2, sessions: ['x'.repeat(1e6)], days: {}, keys: {} })).code, 413);
-  assert.strictEqual((await call('PUT', code, mg)).code, 200);
-  assert.deepStrictEqual((await call('GET', code)).body.data, JSON.parse(JSON.stringify(mg)));
-  assert.strictEqual((await call('GET', other)).body.data, null);
-  assert(![...store.keys()].some(k => k.includes(code)), 'code must not be stored');
-  for (let i = 0; i < 300; i++) await call('GET', code);
-  assert.strictEqual((await call('GET', code)).code, 429);
+  // Nothing stored yet.
+  assert.strictEqual((await call('GET')).body.data, null);
+  assert.deepStrictEqual(seen.url + ' ' + seen.auth, 'https://flamingos.test Bearer sessions');
+  assert.strictEqual((await call('DELETE')).code, 405);
+  // Old sync-code copies (real progress + a new empty one) are combined on first load and left in place.
+  store.set('progress:aaa', JSON.stringify(here));
+  store.set('progress:bbb', JSON.stringify(there));
+  store.set('progress:ccc', JSON.stringify({ v: 2, sessions: [], days: {}, keys: {}, plan: null }));
+  store.set('progress:bad', 'not json');
+  const got = (await call('GET')).body.data;
+  assert.deepStrictEqual(got.sessions.map(s => s.title), ['A', 'B', 'C']);
+  assert(store.has('progress:aaa') && store.has('progress:owner'), 'old copies kept, shared copy made');
+  // Saves merge into the stored copy: an empty or partial save cannot wipe it.
+  assert.strictEqual((await call('PUT', { v: 2 })).code, 400);
+  assert.strictEqual((await call('PUT', { v: 2, sessions: ['x'.repeat(1e6)], days: {}, keys: {} })).code, 413);
+  assert.strictEqual((await call('PUT', { v: 2, sessions: [], days: {}, keys: {}, plan: null })).code, 200);
+  assert.strictEqual((await call('GET')).body.data.sessions.length, 3);
+  assert.strictEqual((await call('PUT', { v: 2, sessions: [ses(D + 9, 'D')], days: {}, keys: {}, plan: null })).code, 200);
+  assert.deepStrictEqual((await call('GET')).body.data.sessions.map(s => s.title), ['A', 'B', 'C', 'D']);
+  for (let n = 0; n < 300; n++) await call('GET');
+  assert.strictEqual((await call('GET')).code, 429);
   console.log('all tests passed');
 })().catch(e => { console.error(e); process.exit(1); });
